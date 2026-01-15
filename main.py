@@ -73,6 +73,7 @@ def obter_apr(apr_id: int, db: Session = Depends(get_db)):
 
     return apr
 
+
 # 🔹 ADICIONAR PASSO
 @app.post(
     "/aprs/{apr_id}/passos",

@@ -1,6 +1,14 @@
 from pydantic import BaseModel
 from typing import Optional, List   
 import schemas as schemas   
+from pydantic import BaseModel
+from typing import Optional
+
+class APRCreate(BaseModel):
+    titulo: str
+    risco: str
+    descricao: Optional[str] = None
+
 
 # ---------- APR ----------
 
