@@ -29,22 +29,65 @@ def get_db():
 
 
 # ---------- ROTAS ----------
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.orm import Session, joinedload
 
-@app.get("/")
-def root():
-    return {"status": "ok"}
+from database import SessionLocal, engine, Base
+import models
+import schemas
+
+app = FastAPI()
+
+Base.metadata.create_all(bind=engine)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
-# 🔹 LISTAR APRS (COM PASSOS)
-@app.get("/aprs")
-def listar_aprs(db: Session = Depends(get_db)):
-    aprs = (
+@app.get("/aprs/{apr_id}", response_model=schemas.APRResponse)
+def obter_apr(apr_id: int, db: Session = Depends(get_db)):
+    apr = (
         db.query(models.APR)
         .options(joinedload(models.APR.passos))
-        .all()
+        .filter(models.APR.id == apr_id)
+        .first()
     )
-    return aprs
 
+    if not apr:
+        raise HTTPException(status_code=404, detail="APR não encontrada")
+
+    return apr
+
+
+@app.post("/aprs/{apr_id}/passos", response_model=schemas.PassoResponse)
+def adicionar_passo(
+    apr_id: int,
+    passo: schemas.PassoCreate,
+    db: Session = Depends(get_db)
+):
+    apr = db.query(models.APR).filter(models.APR.id == apr_id).first()
+    if not apr:
+        raise HTTPException(status_code=404, detail="APR não encontrada")
+
+    novo_passo = models.Passo(
+        apr_id=apr_id,
+        ordem=passo.ordem,
+        descricao=passo.descricao,
+        perigos=passo.perigos,
+        riscos=passo.riscos,
+        medidas_controle=passo.medidas_controle,
+        epis=passo.epis,
+        normas=passo.normas
+    )
+
+    db.add(novo_passo)
+    db.commit()
+    db.refresh(novo_passo)
+    return novo_passo
 
 # 🔹 CRIAR APR
 from schemas import APRCreate
