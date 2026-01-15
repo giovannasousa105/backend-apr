@@ -1,5 +1,4 @@
 from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy.orm import Session
 from database import Base, engine, SessionLocal
 from models import APR, Passo
 
@@ -85,3 +84,33 @@ def adicionar_passo(
     db.refresh(passo)
 
     return passo
+from fastapi import Depends, HTTPException
+from sqlalchemy.orm import Session
+from database import get_db
+from models import APR
+
+@app.get("/aprs/{apr_id}")
+def obter_apr_completa(apr_id: int, db: Session = Depends(get_db)):
+    apr = db.query(APR).filter(APR.id == apr_id).first()
+
+    if not apr:
+        raise HTTPException(status_code=404, detail="APR não encontrada")
+
+    return {
+        "id": apr.id,
+        "titulo": apr.titulo,
+        "descricao": apr.descricao,
+        "risco": apr.risco,
+        "passos": [
+            {
+                "ordem": p.ordem,
+                "descricao": p.descricao,
+                "perigos": p.perigos,
+                "riscos": p.riscos,
+                "medidas_controle": p.medidas_controle,
+                "epis": p.epis,
+                "normas": p.normas,
+            }
+            for p in apr.passos
+        ]
+    }
