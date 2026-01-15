@@ -1,3 +1,4 @@
+import schemas
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
@@ -39,23 +40,20 @@ def listar_aprs(db: Session = Depends(get_db)):
 
 
 # 🔹 CRIAR APR
-@app.post("/aprs")
+@app.post("/aprs", response_model=schemas.APRResponse)
 def criar_apr(
-    titulo: str,
-    risco: str,
-    descricao: str | None = None,
+    apr: schemas.APRCreate,
     db: Session = Depends(get_db)
 ):
-    apr = models.APR(
-        titulo=titulo,
-        risco=risco,
-        descricao=descricao
+    novo_apr = models.APR(
+        titulo=apr.titulo,
+        risco=apr.risco,
+        descricao=apr.descricao
     )
-    db.add(apr)
+    db.add(novo_apr)
     db.commit()
-    db.refresh(apr)
-    return apr
-
+    db.refresh(novo_apr)
+    return novo_apr
 
 # 🔹 OBTER APR COM PASSOS
 @app.get("/aprs/{apr_id}")
@@ -74,38 +72,34 @@ def obter_apr(apr_id: int, db: Session = Depends(get_db)):
 
 
 # 🔹 ADICIONAR PASSO
-@app.post("/aprs/{apr_id}/passos")
+@app.post(
+    "/aprs/{apr_id}/passos",
+    response_model=schemas.PassoResponse
+)
 def adicionar_passo(
     apr_id: int,
-    ordem: int,
-    descricao: str,
-    perigos: str,
-    riscos: str,
-    medidas_controle: str,
-    epis: str,
-    normas: str,
+    passo: schemas.PassoCreate,
     db: Session = Depends(get_db)
 ):
     apr = db.query(models.APR).filter(models.APR.id == apr_id).first()
     if not apr:
         raise HTTPException(status_code=404, detail="APR não encontrada")
 
-    passo = models.Passo(
+    novo_passo = models.Passo(
         apr_id=apr_id,
-        ordem=ordem,
-        descricao=descricao,
-        perigos=perigos,
-        riscos=riscos,
-        medidas_controle=medidas_controle,
-        epis=epis,
-        normas=normas
+        ordem=passo.ordem,
+        descricao=passo.descricao,
+        perigos=passo.perigos,
+        riscos=passo.riscos,
+        medidas_controle=passo.medidas_controle,
+        epis=passo.epis,
+        normas=passo.normas
     )
 
-    db.add(passo)
+    db.add(novo_passo)
     db.commit()
-    db.refresh(passo)
-    return passo
-
+    db.refresh(novo_passo)
+    return novo_passo
 
 # 🔹 LISTAR PASSOS DE UMA APR
 @app.get("/aprs/{apr_id}/passos")
