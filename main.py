@@ -1,19 +1,13 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
-from database import Base, engine, SessionLocal
+
+from database import Base, engine, get_db
 from models import APR, Passo
+from schemas import APRResponse, PassoBase
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @app.get("/")
@@ -21,97 +15,31 @@ def root():
     return {"status": "ok"}
 
 
-# =====================
-# APRs
-# =====================
-
-@app.post("/aprs")
-def criar_apr(
-    titulo: str,
-    risco: str,
-    descricao: str | None = None,
-    db: Session = Depends(get_db)
-):
-    apr = APR(
-        titulo=titulo,
-        risco=risco,
-        descricao=descricao
-    )
-    db.add(apr)
-    db.commit()
-    db.refresh(apr)
-    return apr
-
-
-@app.get("/aprs")
+@app.get("/aprs", response_model=list[APRResponse])
 def listar_aprs(db: Session = Depends(get_db)):
     return db.query(APR).all()
 
 
-# =====================
-# PASSOS DA APR
-# =====================
+@app.get("/aprs/{apr_id}", response_model=APRResponse)
+def obter_apr(apr_id: int, db: Session = Depends(get_db)):
+    apr = db.query(APR).filter(APR.id == apr_id).first()
+    if not apr:
+        raise HTTPException(status_code=404, detail="APR não encontrada")
+    return apr
 
-@app.post("/aprs/{apr_id}/passos")
+
+@app.post("/aprs/{apr_id}/passos", response_model=dict)
 def adicionar_passo(
     apr_id: int,
-    ordem: int,
-    descricao: str,
-    perigos: str,
-    riscos: str,
-    medidas_controle: str,
-    epis: str,
-    normas: str,
-    db: Session = Depends(get_db)
+    passo: PassoBase,
+    db: Session = Depends(get_db),
 ):
     apr = db.query(APR).filter(APR.id == apr_id).first()
-
     if not apr:
         raise HTTPException(status_code=404, detail="APR não encontrada")
 
-    passo = Passo(
-        apr_id=apr_id,
-        ordem=ordem,
-        descricao=descricao,
-        perigos=perigos,
-        riscos=riscos,
-        medidas_controle=medidas_controle,
-        epis=epis,
-        normas=normas
-    )
-
-    db.add(passo)
+    novo_passo = Passo(apr_id=apr_id, **passo.dict())
+    db.add(novo_passo)
     db.commit()
-    db.refresh(passo)
 
-    return passo
-from fastapi import Depends, HTTPException
-from sqlalchemy.orm import Session
-from database import get_db
-from models import APR
-
-@app.get("/aprs/{apr_id}")
-def obter_apr_completa(apr_id: int, db: Session = Depends(get_db)):
-    apr = db.query(APR).filter(APR.id == apr_id).first()
-
-    if not apr:
-        raise HTTPException(status_code=404, detail="APR não encontrada")
-
-    return {
-        "id": apr.id,
-        "titulo": apr.titulo,
-        "descricao": apr.descricao,
-        "risco": apr.risco,
-        "passos": [
-            {
-                "ordem": p.ordem,
-                "descricao": p.descricao,
-                "perigos": p.perigos,
-                "riscos": p.riscos,
-                "medidas_controle": p.medidas_controle,
-                "epis": p.epis,
-                "normas": p.normas,
-            }
-            for p in apr.passos
-        ]
-    }
+    return {"status": "passo adicionado"}
