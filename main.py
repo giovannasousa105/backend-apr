@@ -27,3 +27,8 @@ def adicionar_passo(apr_id: int, passo: PassoCreate):
     db.refresh(novo_passo)
 
     return novo_passo
+from database import engine, Base
+import models
+
+Base.metadata.create_all(bind=engine)
+from fastapi import FastAPI

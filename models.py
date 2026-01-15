@@ -2,16 +2,15 @@ from sqlalchemy import Column, Integer, String, Text, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
 
-
 class APR(Base):
     __tablename__ = "aprs"
 
     id = Column(Integer, primary_key=True, index=True)
     titulo = Column(String(255), nullable=False)
-    descricao = Column(Text, nullable=True)
+    descricao = Column(Text)
     risco = Column(String(50), nullable=False)
 
-    passos = relationship("Passo", back_populates="apr")
+    passos = relationship("Passo", back_populates="apr", cascade="all, delete")
 
 
 class Passo(Base):
