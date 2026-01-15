@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from database import engine
 from sqlalchemy import text
+import models  # IMPORTANTE: garante que os models sejam carregados
 
 app = FastAPI()
 
@@ -17,3 +18,6 @@ def db_test():
     with engine.connect() as conn:
         result = conn.execute(text("SELECT 1"))
         return {"db": "connected"}
+from database import Base, engine
+
+Base.metadata.create_all(bind=engine)
