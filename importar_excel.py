@@ -1,64 +1,36 @@
 import pandas as pd
-from database import SessionLocal
-from models import Atividade, Passo, Epi, Perigo
+from sqlalchemy.orm import Session
+from models import APR, Passo
 
-db = SessionLocal()
 
-# =========================
-# IMPORTAR PERIGOS
-# =========================
-df_perigos = pd.read_excel("perigos_apr_modelo_validado.xlsx")
+def importar_apr_excel(file_path: str, db: Session):
+    df = pd.read_excel(file_path)
 
-for _, row in df_perigos.iterrows():
-    perigo = Perigo(
-        id=int(row["id"]),
-        perigo=row["perigo"],
-        consequencias=row["consequencias"],
-        salvaguardas=row["salvaguardas"]
+    # Cria APR
+    apr = APR(
+        titulo=df["Atividade"].iloc[0],
+        descricao="Importada do Excel",
+        risco="Médio"
     )
-    db.merge(perigo)
 
-# =========================
-# IMPORTAR EPIs
-# =========================
-df_epis = pd.read_excel("epis_apr_modelo_validado.xlsx")
+    db.add(apr)
+    db.commit()
+    db.refresh(apr)
 
-for _, row in df_epis.iterrows():
-    epi = Epi(
-        id=int(row["id"]),
-        nome=row["epi"],
-        descricao=row["descricao"],
-        normas=row["normas"]
-    )
-    db.merge(epi)
+    # Cria Passos
+    for _, row in df.iterrows():
+        passo = Passo(
+            apr_id=apr.id,
+            ordem=int(row["Passo"]),
+            descricao=row["Descrição"],
+            perigos=row.get("Perigos", ""),
+            riscos=row.get("Riscos", ""),
+            medidas_controle=row.get("Medidas de Controle", ""),
+            epis=row.get("EPIs", ""),
+            normas=row.get("Normas", "")
+        )
 
-# =========================
-# IMPORTAR ATIVIDADES E PASSOS
-# =========================
-df_passos = pd.read_excel("atividades_passos_apr_modelo_validado.xlsx")
+        db.add(passo)
 
-for _, row in df_passos.iterrows():
-    atividade = Atividade(
-        id=int(row["atividade_id"]),
-        nome=row["atividade"],
-        local=row["local"],
-        funcao=row["funcao"]
-    )
-    db.merge(atividade)
-
-    passo = Passo(
-        atividade_id=int(row["atividade_id"]),
-        ordem=int(row["ordem_passo"]),
-        descricao=row["descricao_passo"],
-        perigos=row["perigos"],
-        riscos=row["riscos"],
-        medidas_controle=row["medidas_controle"],
-        epis=row["epis"],
-        normas=row["normas"]
-    )
-    db.add(passo)
-
-db.commit()
-db.close()
-
-print("✅ Importação concluída com sucesso")
+    db.commit()
+    return apr
