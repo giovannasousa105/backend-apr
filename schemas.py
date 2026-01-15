@@ -7,7 +7,7 @@ from typing import Optional
 class APRCreate(BaseModel):
     titulo: str
     risco: str
-    descricao: Optional[str] = None
+    descricao: str | None = None
 
 
 # ---------- APR ----------

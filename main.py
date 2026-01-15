@@ -47,6 +47,8 @@ def listar_aprs(db: Session = Depends(get_db)):
 
 
 # 🔹 CRIAR APR
+from schemas import APRCreate
+
 @app.post("/aprs")
 def criar_apr(
     apr: APRCreate,
