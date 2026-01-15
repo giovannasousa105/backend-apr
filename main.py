@@ -56,7 +56,10 @@ def criar_apr(
     return novo_apr
 
 # 🔹 OBTER APR COM PASSOS
-@app.get("/aprs/{apr_id}")
+@app.get(
+    "/aprs/{apr_id}",
+    response_model=schemas.APRResponse
+)
 def obter_apr(apr_id: int, db: Session = Depends(get_db)):
     apr = (
         db.query(models.APR)
@@ -69,7 +72,6 @@ def obter_apr(apr_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="APR não encontrada")
 
     return apr
-
 
 # 🔹 ADICIONAR PASSO
 @app.post(

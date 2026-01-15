@@ -1,6 +1,6 @@
 from pydantic import BaseModel
-from typing import Optional, List
-
+from typing import Optional, List   
+import schemas as schemas   
 
 # ---------- APR ----------
 
@@ -37,9 +37,41 @@ class PassoCreate(PassoBase):
     pass
 
 
-class PassoResponse(PassoBase):
+class PassoResponse(BaseModel):
     id: int
     apr_id: int
+    ordem: int
+    descricao: str
+    perigos: str
+    riscos: str
+    medidas_controle: str
+    epis: str
+    normas: str
 
     class Config:
         from_attributes = True
+
+
+class APRResponse(BaseModel):
+    id: int
+    titulo: str
+    risco: str
+    descricao: str | None
+    passos: List[PassoResponse] = []
+
+    class Config:
+        from_attributes = True
+# ---------- USUARIO ----------
+class UsuarioBase(BaseModel):
+    nome: str
+    email: str
+    ativo: bool = True
+    administrador: bool = False
+class UsuarioCreate(UsuarioBase):
+    senha: str
+class UsuarioResponse(UsuarioBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+# ---------- FIM USUARIO ----------
