@@ -37,9 +37,12 @@ class PassoResponse(PassoBase):
         from_attributes = True
 
 
-class APRResponse(APRBase):
+class APRResponse(BaseModel):
     id: int
+    titulo: str
+    risco: str
+    descricao: Optional[str] = None
     passos: List[PassoResponse] = []
 
     class Config:
-        from_attributes = True
+        orm_mode = True
