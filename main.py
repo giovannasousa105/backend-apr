@@ -1,10 +1,17 @@
 import schemas
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
+from pydantic import BaseModel
+from typing import Optional
 
 from database import Base, engine, SessionLocal
 import models
 from importar_excel import importar_apr_excel
+
+class APRCreate(BaseModel):
+    titulo: str
+    risco: str
+    descricao: Optional[str] = None
 
 # 🔴 CRIA O APP
 app = FastAPI()
@@ -40,9 +47,9 @@ def listar_aprs(db: Session = Depends(get_db)):
 
 
 # 🔹 CRIAR APR
-@app.post("/aprs", response_model=schemas.APRResponse)
+@app.post("/aprs")
 def criar_apr(
-    apr: schemas.APRCreate,
+    apr: APRCreate,
     db: Session = Depends(get_db)
 ):
     novo_apr = models.APR(
@@ -54,6 +61,7 @@ def criar_apr(
     db.commit()
     db.refresh(novo_apr)
     return novo_apr
+
 
 # 🔹 OBTER APR COM PASSOS
 @app.get(
