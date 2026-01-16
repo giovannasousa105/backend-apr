@@ -29,3 +29,6 @@ class APRResponse(APRBase):
 
     class Config:
         from_attributes = True
+class APRListResponse(BaseModel):
+    aprs: List[APRResponse]
+    

@@ -1,16 +1,19 @@
-passos_fake = []
-
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
-from fastapi import UploadFile, File
 import shutil
-from importar_excel import importar_apr_excel
 
-from database import SessionLocal, engine, Base
+from database import SessionLocal
 import models, schemas
+
+# IMPORTA A FUNÇÃO MULTI-APR (novo nome, mas sem quebrar nada)
+from importar_excel import importar_aprs_excel
 
 app = FastAPI()
 
+
+# -------------------------
+# DEPENDÊNCIA DO BANCO
+# -------------------------
 def get_db():
     db = SessionLocal()
     try:
@@ -18,10 +21,18 @@ def get_db():
     finally:
         db.close()
 
+
+# -------------------------
+# ROOT
+# -------------------------
 @app.get("/")
 def root():
     return {"status": "ok"}
 
+
+# -------------------------
+# APRs
+# -------------------------
 @app.post("/aprs", response_model=schemas.APRResponse)
 def criar_apr(apr: schemas.APRCreate, db: Session = Depends(get_db)):
     nova_apr = models.APR(
@@ -34,56 +45,39 @@ def criar_apr(apr: schemas.APRCreate, db: Session = Depends(get_db)):
     db.refresh(nova_apr)
     return nova_apr
 
+
 @app.get("/aprs", response_model=list[schemas.APRResponse])
 def listar_aprs(db: Session = Depends(get_db)):
     return db.query(models.APR).all()
 
-@app.post("/passos")
-def criar_passo(
-    ordem: int,
-    descricao: str,
-    perigos: str,
-    riscos: str,
-    medidas_controle: str,
-    epis: str,
-    normas: str
-):
-    passo = {
-        "id": len(passos_fake) + 1,
-        "ordem": ordem,
-        "descricao": descricao,
-        "perigos": perigos,
-        "riscos": riscos,
-        "medidas_controle": medidas_controle,
-        "epis": epis,
-        "normas": normas
-    }
 
-    passos_fake.append(passo)
-    return passo
-
-@app.get("/passos")
-def listar_passos():
-    return passos_fake
-
-@app.post("/aprs/importar-excel", response_model=schemas.APRResponse)
+# -------------------------
+# IMPORTAÇÃO EXCEL (MULTI-APR)
+# -------------------------
+@app.post("/aprs/importar-excel")
 def importar_excel(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    if not file.filename.endswith(".xlsx"):
+    if not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="Envie um arquivo .xlsx")
 
     caminho = f"temp_{file.filename}"
 
-    with open(caminho, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
     try:
-        apr = importar_apr_excel(caminho, db)
-        return apr
+        with open(caminho, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        aprs = importar_aprs_excel(caminho, db)
+
+        return {
+            "quantidade_aprs": len(aprs),
+            "aprs": aprs
+        }
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+
     finally:
         file.file.close()
