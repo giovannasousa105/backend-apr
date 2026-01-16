@@ -12,7 +12,13 @@ class PassoResponse(PassoBase):
     class Config:
         from_attributes = True
 
+class PassoResponse(BaseModel):
+    id: int
+    descricao: str
 
+    class Config:
+        from_attributes = True
+        
 class APRBase(BaseModel):
     titulo: str
     risco: str

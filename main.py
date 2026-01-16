@@ -22,10 +22,10 @@ def get_db():
 def root():
     return {"status": "ok"}
 
-
-@app.get("/aprs")
+@app.get("/aprs", response_model=list[schemas.APRResponse])
 def listar_aprs(db: Session = Depends(get_db)):
     return db.query(models.APR).all()
+
 
 
 @app.post("/aprs")
