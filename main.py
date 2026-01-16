@@ -5,7 +5,7 @@ import shutil
 from database import SessionLocal
 import models
 import schemas
-from importar_excel import importar_aprs_excel
+from importar_excel import importar_apr_excel
 
 app = FastAPI()
 
@@ -53,7 +53,7 @@ def importar_excel_multi(
         with open(caminho, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        aprs = importar_aprs_excel(caminho, db)
+       apr = importar_apr_excel(caminho, db)
 
         return {
             "status": "ok",
