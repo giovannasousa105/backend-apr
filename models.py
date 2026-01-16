@@ -1,5 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, Text
 from database import Base
 
 
@@ -11,24 +10,12 @@ class APR(Base):
     risco = Column(String(50), nullable=False)
     descricao = Column(Text, nullable=True)
 
-    passos = relationship(
-        "Passo",
-        back_populates="apr",
-        cascade="all, delete-orphan",
-        lazy="selectin"
-    )
-
 
 class Passo(Base):
     __tablename__ = "passos"
 
     id = Column(Integer, primary_key=True, index=True)
-    apr_id = Column(
-        Integer,
-        ForeignKey("aprs.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True
-    )
+    apr_id = Column(Integer, nullable=False)  # sem ForeignKey por enquanto
 
     ordem = Column(Integer, nullable=False)
     descricao = Column(Text, nullable=False)
@@ -37,8 +24,3 @@ class Passo(Base):
     medidas_controle = Column(Text, nullable=False)
     epis = Column(Text, nullable=False)
     normas = Column(Text, nullable=False)
-
-    apr = relationship(
-        "APR",
-        back_populates="passos"
-    )
