@@ -1,36 +1,37 @@
 import pandas as pd
 from sqlalchemy.orm import Session
-from models import APR, Passo
+import models
 
 
-def importar_apr_excel(file_path: str, db: Session):
-    df = pd.read_excel(file_path)
+def importar_apr_excel(caminho_arquivo: str, db: Session):
+    df = pd.read_excel(caminho_arquivo)
 
-    # Cria APR
-    apr = APR(
-        titulo=df["Atividade"].iloc[0],
-        descricao="Importada do Excel",
-        risco="Médio"
+    if df.empty:
+        raise ValueError("Arquivo Excel vazio")
+
+    # pega dados da APR da primeira linha
+    titulo = df.loc[0, "titulo_apr"]
+    risco = df.loc[0, "risco"]
+    descricao_apr = df.loc[0, "descricao_apr"]
+
+    apr = models.APR(
+        titulo=titulo,
+        risco=risco,
+        descricao=descricao_apr
     )
 
     db.add(apr)
-    db.commit()
-    db.refresh(apr)
+    db.flush()  # 🔴 cria ID sem commit
 
-    # Cria Passos
     for _, row in df.iterrows():
-        passo = Passo(
-            apr_id=apr.id,
-            ordem=int(row["Passo"]),
-            descricao=row["Descrição"],
-            perigos=row.get("Perigos", ""),
-            riscos=row.get("Riscos", ""),
-            medidas_controle=row.get("Medidas de Controle", ""),
-            epis=row.get("EPIs", ""),
-            normas=row.get("Normas", "")
+        passo = models.Passo(
+            descricao=row["passo_descricao"],
+            apr_id=apr.id
         )
-
         db.add(passo)
 
     db.commit()
+    db.refresh(apr)
+
     return apr
+
