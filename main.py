@@ -68,3 +68,10 @@ def importar_excel(
 
     finally:
         file.file.close()
+        
+@app.get("/aprs/{apr_id}", response_model=schemas.APRResponse)
+def obter_apr(apr_id: int, db: Session = Depends(get_db)):
+    apr = db.query(models.APR).filter(models.APR.id == apr_id).first()
+    if not apr:
+        raise HTTPException(status_code=404, detail="APR não encontrada")
+    return apr
