@@ -34,3 +34,14 @@ def criar_apr(apr: schemas.APRCreate, db: Session = Depends(get_db)):
 @app.get("/aprs", response_model=list[schemas.APRResponse])
 def listar_aprs(db: Session = Depends(get_db)):
     return db.query(models.APR).all()
+@app.post("/passos", response_model=schemas.PassoResponse)
+def criar_passo(passo: schemas.PassoCreate, db: Session = Depends(get_db)):
+    novo_passo = models.Passo(**passo.dict())
+    db.add(novo_passo)
+    db.commit()
+    db.refresh(novo_passo)
+    return novo_passo
+
+@app.get("/passos", response_model=list[schemas.PassoResponse])
+def listar_passos(db: Session = Depends(get_db)):
+    return db.query(models.Passo).all()
