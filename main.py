@@ -6,7 +6,7 @@ from database import SessionLocal
 import models, schemas
 
 # IMPORTA A FUNÇÃO MULTI-APR (novo nome, mas sem quebrar nada)
-from importar_excel import importar_aprs_excel
+from importar_excel import importar_apr_excel
 
 app = FastAPI()
 

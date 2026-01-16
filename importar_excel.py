@@ -12,6 +12,7 @@ COLUNAS_OBRIGATORIAS = [
 
 
 def importar_apr_excel(caminho_arquivo: str, db: Session):
+
     try:
         df = pd.read_excel(caminho_arquivo)
     except Exception:
