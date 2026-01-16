@@ -1,13 +1,16 @@
-passos_fake = []
-
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from database import SessionLocal, engine, Base
-import models, schemas
+from database import SessionLocal
+import models
+import schemas
 
-app = FastAPI()
+app = FastAPI(title="APR API")
 
+
+# -------------------------
+# DEPENDÊNCIA DO BANCO
+# -------------------------
 def get_db():
     db = SessionLocal()
     try:
@@ -15,10 +18,18 @@ def get_db():
     finally:
         db.close()
 
+
+# -------------------------
+# ROOT
+# -------------------------
 @app.get("/")
 def root():
     return {"status": "ok"}
 
+
+# -------------------------
+# APRs
+# -------------------------
 @app.post("/aprs", response_model=schemas.APRResponse)
 def criar_apr(apr: schemas.APRCreate, db: Session = Depends(get_db)):
     nova_apr = models.APR(
@@ -26,39 +37,49 @@ def criar_apr(apr: schemas.APRCreate, db: Session = Depends(get_db)):
         risco=apr.risco,
         descricao=apr.descricao
     )
+
     db.add(nova_apr)
     db.commit()
     db.refresh(nova_apr)
+
     return nova_apr
+
 
 @app.get("/aprs", response_model=list[schemas.APRResponse])
 def listar_aprs(db: Session = Depends(get_db)):
     return db.query(models.APR).all()
 
-@app.post("/passos")
+
+@app.get("/aprs/{apr_id}", response_model=schemas.APRResponse)
+def obter_apr(apr_id: int, db: Session = Depends(get_db)):
+    apr = db.query(models.APR).filter(models.APR.id == apr_id).first()
+
+    if not apr:
+        raise HTTPException(status_code=404, detail="APR não encontrada")
+
+    return apr
+
+
+# -------------------------
+# PASSOS
+# -------------------------
+@app.post("/aprs/{apr_id}/passos", response_model=schemas.PassoResponse)
 def criar_passo(
-    ordem: int,
-    descricao: str,
-    perigos: str,
-    riscos: str,
-    medidas_controle: str,
-    epis: str,
-    normas: str
+    apr_id: int,
+    passo: schemas.PassoCreate,
+    db: Session = Depends(get_db)
 ):
-    passo = {
-        "id": len(passos_fake) + 1,
-        "ordem": ordem,
-        "descricao": descricao,
-        "perigos": perigos,
-        "riscos": riscos,
-        "medidas_controle": medidas_controle,
-        "epis": epis,
-        "normas": normas
-    }
+    apr = db.query(models.APR).filter(models.APR.id == apr_id).first()
+    if not apr:
+        raise HTTPException(status_code=404, detail="APR não encontrada")
 
-    passos_fake.append(passo)
-    return passo
+    novo_passo = models.Passo(
+        descricao=passo.descricao,
+        apr_id=apr_id
+    )
 
-@app.get("/passos")
-def listar_passos():
-    return passos_fake
+    db.add(novo_passo)
+    db.commit()
+    db.refresh(novo_passo)
+
+    return novo_passo
