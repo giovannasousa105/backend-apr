@@ -1,3 +1,5 @@
+passos_fake = []
+
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 
@@ -43,25 +45,22 @@ def criar_passo(
     riscos: str,
     medidas_controle: str,
     epis: str,
-    normas: str,
-    db: Session = Depends(get_db)
+    normas: str
 ):
-    passo = models.Passo(
-        ordem=ordem,
-        descricao=descricao,
-        perigos=perigos,
-        riscos=riscos,
-        medidas_controle=medidas_controle,
-        epis=epis,
-        normas=normas
-    )
+    passo = {
+        "id": len(passos_fake) + 1,
+        "ordem": ordem,
+        "descricao": descricao,
+        "perigos": perigos,
+        "riscos": riscos,
+        "medidas_controle": medidas_controle,
+        "epis": epis,
+        "normas": normas
+    }
 
-    db.add(passo)
-    db.commit()
-    db.refresh(passo)
-
+    passos_fake.append(passo)
     return passo
 
-@app.get("/passos", response_model=list[schemas.PassoResponse])
-def listar_passos(db: Session = Depends(get_db)):
-    return db.query(models.Passo).all()
+@app.get("/passos")
+def listar_passos():
+    return passos_fake

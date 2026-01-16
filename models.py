@@ -9,15 +9,3 @@ class APR(Base):
     risco = Column(String(50), nullable=False)
     descricao = Column(Text, nullable=True)
 
-
-class Passo(Base):
-    __tablename__ = "passos"
-
-    id = Column(Integer, primary_key=True, index=True)
-    ordem = Column(Integer, nullable=False)
-    descricao = Column(Text, nullable=False)
-    perigos = Column(Text, nullable=False)
-    riscos = Column(Text, nullable=False)
-    medidas_controle = Column(Text, nullable=False)
-    epis = Column(Text, nullable=False)
-    normas = Column(Text, nullable=False)
