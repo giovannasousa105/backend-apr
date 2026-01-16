@@ -109,7 +109,7 @@ def criar_apr(
 
 # 🔹 OBTER APR COM PASSOS
 
-@app.get("/aprs/{apr_id}", response_model=schemas.APRResponse)
+@app.get ("/aprs/{apr_id}")
 def obter_apr(apr_id: int, db: Session = Depends(get_db)):
     apr = (
         db.query(models.APR)
