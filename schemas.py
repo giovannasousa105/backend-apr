@@ -1,11 +1,10 @@
 from pydantic import BaseModel
 from typing import Optional, List
 
+
 # ---------- PASSO ----------
 
-class PassoResponse(BaseModel):
-    id: int
-    apr_id: int
+class PassoBase(BaseModel):
     ordem: int
     descricao: str
     perigos: str
@@ -14,18 +13,34 @@ class PassoResponse(BaseModel):
     epis: str
     normas: str
 
+
+class PassoCreate(PassoBase):
+    pass
+
+
+class PassoResponse(PassoBase):
+    id: int
+    apr_id: int
+
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ---------- APR ----------
 
-class APRResponse(BaseModel):
-    id: int
+class APRBase(BaseModel):
     titulo: str
     risco: str
     descricao: Optional[str] = None
+
+
+class APRCreate(APRBase):
+    pass
+
+
+class APRResponse(APRBase):
+    id: int
     passos: List[PassoResponse] = []
 
     class Config:
-        orm_mode = True
+        from_attributes = True
