@@ -126,3 +126,7 @@ def deletar_passo(passo_id: int, db: Session = Depends(get_db)):
 @app.post("/importar_apr/")
 def importar_apr(file_path: str, db: Session = Depends(get_db)):
     return importar_apr_excel(file_path, db)
+
+@app.on_event("startup")
+def startup():
+    Base.metadata.create_all(bind=engine)
