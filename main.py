@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
@@ -25,3 +25,16 @@ def root():
 @app.get("/aprs")
 def listar_aprs(db: Session = Depends(get_db)):
     return db.query(models.APR).all()
+
+
+@app.post("/aprs")
+def criar_apr(apr: schemas.APRCreate, db: Session = Depends(get_db)):
+    nova_apr = models.APR(
+        titulo=apr.titulo,
+        risco=apr.risco,
+        descricao=apr.descricao
+    )
+    db.add(nova_apr)
+    db.commit()
+    db.refresh(nova_apr)
+    return nova_apr
