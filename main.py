@@ -1,17 +1,13 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
-from database import Base, engine, SessionLocal
+from database import engine, SessionLocal
 import models
 import schemas
-from importar_excel import importar_apr_excel
 
 app = FastAPI(title="APR API")
 
-# cria tabelas
-Base.metadata.create_all(bind=engine)
-
-# dependência do banco
+# 🔹 DEPENDÊNCIA DO BANCO
 def get_db():
     db = SessionLocal()
     try:
@@ -20,28 +16,36 @@ def get_db():
         db.close()
 
 
-# ---------- ROTAS ----------
-
+# 🔹 HEALTHCHECK (Railway)
 @app.get("/health")
 def health():
     return {"status": "alive"}
 
 
-# 🔹 CRIAR APR
-@app.post("/aprs", response_model=schemas.APRResponse)
-def criar_apr(
-    apr: schemas.APRCreate,
+# 🔹 CRIAR APR (JSON BODY)
+from fastapi import Body
+
+@app.post("/aprs/{apr_id}/passos")
+def criar_passo(
+    apr_id: int,
+    passo: schemas.PassoCreate = Body(...),
     db: Session = Depends(get_db)
 ):
-    novo_apr = models.APR(
-        titulo=apr.titulo,
-        risco=apr.risco,
-        descricao=apr.descricao
+    passo_db = models.Passo(
+        apr_id=apr_id,
+        ordem=passo.ordem,
+        descricao=passo.descricao,
+        perigos=passo.perigos,
+        riscos=passo.riscos,
+        medidas_controle=passo.medidas_controle,
+        epis=passo.epis,
+        normas=passo.normas
     )
-    db.add(novo_apr)
+
+    db.add(passo_db)
     db.commit()
-    db.refresh(novo_apr)
-    return novo_apr
+    db.refresh(passo_db)
+    return passo_db
 
 
 # 🔹 OBTER APR COM PASSOS
@@ -89,12 +93,8 @@ def adicionar_passo(
 
 
 # 🔹 LISTAR PASSOS
-@app.get("/aprs/{apr_id}/passos", response_model=list[schemas.PassoResponse])
+@app.get("/aprs/{apr_id}/passos")
 def listar_passos(apr_id: int, db: Session = Depends(get_db)):
-    apr = db.query(models.APR).filter(models.APR.id == apr_id).first()
-    if not apr:
-        raise HTTPException(status_code=404, detail="APR não encontrada")
-
     return db.query(models.Passo).filter(models.Passo.apr_id == apr_id).all()
 
 
@@ -120,13 +120,3 @@ def deletar_passo(passo_id: int, db: Session = Depends(get_db)):
     db.delete(passo)
     db.commit()
     return {"detail": "Passo deletado com sucesso"}
-
-
-# 🔹 IMPORTAR APR VIA EXCEL
-@app.post("/importar_apr/")
-def importar_apr(file_path: str, db: Session = Depends(get_db)):
-    return importar_apr_excel(file_path, db)
-
-@app.on_event("startup")
-def startup():
-    Base.metadata.create_all(bind=engine)

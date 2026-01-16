@@ -30,8 +30,13 @@ class PassoResponse(PassoBase):
 
 class APRBase(BaseModel):
     titulo: str
-    risco: str
-    descricao: Optional[str] = None
+    ordem: int
+    descricao: str
+    perigos: str
+    riscos: str
+    medidas_controle: str
+    epis: str
+    normas: str
 
 
 class APRCreate(APRBase):
