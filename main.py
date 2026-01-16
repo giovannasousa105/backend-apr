@@ -26,9 +26,7 @@ def root():
 def listar_aprs(db: Session = Depends(get_db)):
     return db.query(models.APR).all()
 
-
-
-@app.post("/aprs")
+@app.post("/aprs", response_model=schemas.APRResponse)
 def criar_apr(apr: schemas.APRCreate, db: Session = Depends(get_db)):
     nova_apr = models.APR(
         titulo=apr.titulo,
@@ -39,7 +37,6 @@ def criar_apr(apr: schemas.APRCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(nova_apr)
     return nova_apr
-
 
 # 🔴 ENDPOINT DE IMPORTAÇÃO (ADICIONAR AGORA)
 @app.post("/aprs/importar-excel")
@@ -68,7 +65,7 @@ def importar_excel(
 
     finally:
         file.file.close()
-        
+
 @app.get("/aprs/{apr_id}", response_model=schemas.APRResponse)
 def obter_apr(apr_id: int, db: Session = Depends(get_db)):
     apr = db.query(models.APR).filter(models.APR.id == apr_id).first()
