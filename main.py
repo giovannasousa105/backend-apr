@@ -5,7 +5,7 @@ import shutil
 from database import SessionLocal
 import models
 import schemas
-from importar_excel import importar_apr_excel
+from importar_excel import importar_aprs_excel
 
 app = FastAPI()
 
@@ -39,8 +39,8 @@ def criar_apr(apr: schemas.APRCreate, db: Session = Depends(get_db)):
     return nova_apr
 
 # 🔴 ENDPOINT DE IMPORTAÇÃO (ADICIONAR AGORA)
-@app.post("/aprs/importar-excel")
-def importar_excel(
+@app.post("/aprs/importar-excel-multi")
+def importar_excel_multi(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
@@ -53,10 +53,12 @@ def importar_excel(
         with open(caminho, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        apr = importar_apr_excel(caminho, db)
+        aprs = importar_aprs_excel(caminho, db)
+
         return {
             "status": "ok",
-            "apr_id": apr.id
+            "quantidade_aprs": len(aprs),
+            "ids_aprs": [apr.id for apr in aprs]
         }
 
     except Exception as e:
