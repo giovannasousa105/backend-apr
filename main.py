@@ -54,7 +54,7 @@ def listar_aprs(db: Session = Depends(get_db)):
 # -------------------------
 # IMPORTAÇÃO EXCEL (MULTI-APR)
 # -------------------------
-@app.post("/aprs/importar-excel")
+apr = importar_apr_excel(caminho, db)
 def importar_excel(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
