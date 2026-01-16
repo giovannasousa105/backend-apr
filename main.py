@@ -1,25 +1,17 @@
-import schemas
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
-from pydantic import BaseModel
-from typing import Optional
 
 from database import Base, engine, SessionLocal
 import models
+import schemas
 from importar_excel import importar_apr_excel
 
-class APRCreate(BaseModel):
-    titulo: str
-    risco: str
-    descricao: Optional[str] = None
+app = FastAPI(title="APR API")
 
-# 🔴 CRIA O APP
-app = FastAPI()
-
-# 🔴 CRIA AS TABELAS
+# cria tabelas
 Base.metadata.create_all(bind=engine)
 
-# 🔴 DEPENDÊNCIA DO BANCO
+# dependência do banco
 def get_db():
     db = SessionLocal()
     try:
@@ -29,25 +21,31 @@ def get_db():
 
 
 # ---------- ROTAS ----------
-from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy.orm import Session, joinedload
 
-from database import SessionLocal, engine, Base
-import models
-import schemas
+@app.get("/health")
+def health():
+    return {"status": "alive"}
 
-app = FastAPI()
 
-Base.metadata.create_all(bind=engine)
+# 🔹 CRIAR APR
+@app.post("/aprs", response_model=schemas.APRResponse)
+def criar_apr(
+    apr: schemas.APRCreate,
+    db: Session = Depends(get_db)
+):
+    novo_apr = models.APR(
+        titulo=apr.titulo,
+        risco=apr.risco,
+        descricao=apr.descricao
+    )
+    db.add(novo_apr)
+    db.commit()
+    db.refresh(novo_apr)
+    return novo_apr
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
-@app.get("/aprs/{apr_id}")
+# 🔹 OBTER APR COM PASSOS
+@app.get("/aprs/{apr_id}", response_model=schemas.APRResponse)
 def obter_apr(apr_id: int, db: Session = Depends(get_db)):
     apr = (
         db.query(models.APR)
@@ -62,6 +60,7 @@ def obter_apr(apr_id: int, db: Session = Depends(get_db)):
     return apr
 
 
+# 🔹 ADICIONAR PASSO
 @app.post("/aprs/{apr_id}/passos", response_model=schemas.PassoResponse)
 def adicionar_passo(
     apr_id: int,
@@ -88,73 +87,9 @@ def adicionar_passo(
     db.refresh(novo_passo)
     return novo_passo
 
-# 🔹 CRIAR APR
-from schemas import APRCreate
 
-@app.post("/aprs")
-def criar_apr(
-    apr: APRCreate,
-    db: Session = Depends(get_db)
-):
-    novo_apr = models.APR(
-        titulo=apr.titulo,
-        risco=apr.risco,
-        descricao=apr.descricao
-    )
-    db.add(novo_apr)
-    db.commit()
-    db.refresh(novo_apr)
-    return novo_apr
-
-
-# 🔹 OBTER APR COM PASSOS
-
-@app.get("/aprs/{apr_id}", response_model=schemas.APRResponse)
-def obter_apr(apr_id: int, db: Session = Depends(get_db)):
-    apr = (
-        db.query(models.APR)
-        .options(joinedload(models.APR.passos))
-        .filter(models.APR.id == apr_id)
-        .first()
-    )
-
-    if not apr:
-        raise HTTPException(status_code=404, detail="APR não encontrada")
-
-    return apr
-
-# 🔹 ADICIONAR PASSO
-@app.post(
-    "/aprs/{apr_id}/passos",
-    response_model=schemas.PassoResponse
-)
-def adicionar_passo(
-    apr_id: int,
-    passo: schemas.PassoCreate,
-    db: Session = Depends(get_db)
-):
-    apr = db.query(models.APR).filter(models.APR.id == apr_id).first()
-    if not apr:
-        raise HTTPException(status_code=404, detail="APR não encontrada")
-
-    novo_passo = models.Passo(
-        apr_id=apr_id,
-        ordem=passo.ordem,
-        descricao=passo.descricao,
-        perigos=passo.perigos,
-        riscos=passo.riscos,
-        medidas_controle=passo.medidas_controle,
-        epis=passo.epis,
-        normas=passo.normas
-    )
-
-    db.add(novo_passo)
-    db.commit()
-    db.refresh(novo_passo)
-    return novo_passo
-
-# 🔹 LISTAR PASSOS DE UMA APR
-@app.get("/aprs/{apr_id}/passos")
+# 🔹 LISTAR PASSOS
+@app.get("/aprs/{apr_id}/passos", response_model=list[schemas.PassoResponse])
 def listar_passos(apr_id: int, db: Session = Depends(get_db)):
     apr = db.query(models.APR).filter(models.APR.id == apr_id).first()
     if not apr:
@@ -190,5 +125,4 @@ def deletar_passo(passo_id: int, db: Session = Depends(get_db)):
 # 🔹 IMPORTAR APR VIA EXCEL
 @app.post("/importar_apr/")
 def importar_apr(file_path: str, db: Session = Depends(get_db)):
-    apr = importar_apr_excel(file_path, db)
-    return apr
+    return importar_apr_excel(file_path, db)
