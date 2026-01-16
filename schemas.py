@@ -1,51 +1,13 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
 
-
-# ---------- PASSO ----------
-
-class PassoBase(BaseModel):
-    ordem: int
-    descricao: str
-    perigos: str
-    riscos: str
-    medidas_controle: str
-    epis: str
-    normas: str
-
-
-class PassoCreate(PassoBase):
-    pass
-
-
-class PassoResponse(PassoBase):
-    id: int
-    apr_id: int
-
-    class Config:
-        from_attributes = True
-
-
-# ---------- APR ----------
-
-class APRBase(BaseModel):
+class APRCreate(BaseModel):
     titulo: str
-    ordem: int
-    descricao: str
-    perigos: str
-    riscos: str
-    medidas_controle: str
-    epis: str
-    normas: str
+    risco: str
+    descricao: Optional[str] = None
 
-
-class APRCreate(APRBase):
-    pass
-
-
-class APRResponse(APRBase):
+class APRResponse(APRCreate):
     id: int
-    passos: List[PassoResponse] = []
 
     class Config:
         from_attributes = True
