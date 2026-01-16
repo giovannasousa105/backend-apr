@@ -39,8 +39,8 @@ def criar_apr(apr: schemas.APRCreate, db: Session = Depends(get_db)):
     return nova_apr
 
 # 🔴 ENDPOINT DE IMPORTAÇÃO (ADICIONAR AGORA)
-@app.post("/aprs/importar-excel-multi")
-def importar_excel_multi(
+@app.post("/aprs/importar-excel")
+def importar_excel(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
@@ -53,12 +53,11 @@ def importar_excel_multi(
         with open(caminho, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-       apr = importar_apr_excel(caminho, db)
+        apr = importar_apr_excel(caminho, db)
 
         return {
             "status": "ok",
-            "quantidade_aprs": len(aprs),
-            "ids_aprs": [apr.id for apr in aprs]
+            "apr_id": apr.id
         }
 
     except Exception as e:
