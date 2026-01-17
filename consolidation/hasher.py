@@ -20,16 +20,29 @@ def gerar_hash_arquivo(caminho_arquivo: str) -> str:
     return sha256.hexdigest()
 
 
+import hashlib
+
+def _hash_arquivo(caminho: str) -> str:
+    sha = hashlib.sha256()
+    with open(caminho, "rb") as f:
+        while chunk := f.read(8192):
+            sha.update(chunk)
+    return sha.hexdigest()
+
+
 def gerar_hashes_origem(
-    caminho_atividades: str,
     caminho_epis: str,
-    caminho_perigos: str
-) -> Dict[str, str]:
-    """
-    Gera hashes SHA-256 dos 3 Excels de origem.
-    """
-    return {
-        "atividades_passos_excel": gerar_hash_arquivo(caminho_atividades),
-        "epis_excel": gerar_hash_arquivo(caminho_epis),
-        "perigos_excel": gerar_hash_arquivo(caminho_perigos),
+    caminho_perigos: str,
+    prompt_ai: str | None = None,
+):
+    hashes = {
+        "epis": _hash_arquivo(caminho_epis),
+        "perigos": _hash_arquivo(caminho_perigos),
     }
+
+    if prompt_ai:
+        hashes["prompt_ai"] = hashlib.sha256(
+            prompt_ai.encode("utf-8")
+        ).hexdigest()
+
+    return hashes

@@ -43,7 +43,7 @@ def root():
 
 
 # ==================================================
-# APRs (inalterado)
+# APRs
 # ==================================================
 
 @app.get("/aprs", response_model=list[schemas.APRResponse])
@@ -75,9 +75,11 @@ def consolidar_documento(
 ):
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
+            # caminhos temporários
             epis_path = os.path.join(tmpdir, epis_file.filename)
             perigos_path = os.path.join(tmpdir, perigos_file.filename)
 
+            # salvar arquivos
             with open(epis_path, "wb") as f:
                 shutil.copyfileobj(epis_file.file, f)
 
@@ -85,10 +87,11 @@ def consolidar_documento(
                 shutil.copyfileobj(perigos_file.file, f)
 
             # 1️⃣ Hash (auditoria)
-hashes = gerar_hashes_origem(
-    caminho_epis=epis_path,
-    caminho_perigos=perigos_path,
-)
+            hashes = gerar_hashes_origem(
+                caminho_epis=epis_path,
+                caminho_perigos=perigos_path,
+            )
+
             # 2️⃣ Loader (cadastros oficiais)
             epis = carregar_epis(epis_path)
             perigos = carregar_perigos(perigos_path)
@@ -98,20 +101,20 @@ hashes = gerar_hashes_origem(
             if not perigos:
                 raise ValueError("Nenhum perigo carregado")
 
-            # 3️⃣ OpenAI gera atividades/passos
+            # 3️⃣ IA gera atividades / passos
             atividades = gerar_atividades_por_ai(
                 perigos=perigos,
                 epis=epis
             )
 
-            # 4️⃣ Validator (NR / engenharia)
+            # 4️⃣ Validação técnica (NR / engenharia)
             validar_documento(
                 atividades=atividades,
                 epis=epis,
                 perigos=perigos
             )
 
-            # 5️⃣ Builder (documento canônico)
+            # 5️⃣ Builder (documento final)
             documento = construir_documento(
                 atividades=atividades,
                 epis=epis,
@@ -124,6 +127,7 @@ hashes = gerar_hashes_origem(
                 "hashes": hashes,
                 "documento": documento
             }
+
     except ValidationError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
 
