@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Dict, List
+from typing import Dict, List, Any
 
 
 # ==================================================
@@ -18,7 +18,7 @@ def _parse_lista(valor) -> List[str]:
 # LOADER: EPIs
 # ==================================================
 
-def carregar_epis(caminho_epis: str) -> Dict[int, Dict]:
+def carregar_epis(caminho_epis: str) -> List[Dict[str, Any]]:
     """
     Excel esperado:
     id | epi | descricao | normas
@@ -31,17 +31,17 @@ def carregar_epis(caminho_epis: str) -> Dict[int, Dict]:
             f"Excel de EPIs inválido. Esperado {colunas}. Encontrado {set(df.columns)}"
         )
 
-    epis = {}
+    epis: List[Dict[str, Any]] = []
 
     for _, row in df.iterrows():
         epi_id = int(row["id"])
 
-        epis[epi_id] = {
+        epis.append({
             "id": epi_id,
             "epi": str(row["epi"]).strip(),
             "descricao": str(row["descricao"]).strip(),
             "normas": _parse_lista(row["normas"]),
-        }
+        })
 
     return epis
 
@@ -50,7 +50,7 @@ def carregar_epis(caminho_epis: str) -> Dict[int, Dict]:
 # LOADER: PERIGOS
 # ==================================================
 
-def carregar_perigos(caminho_perigos: str) -> Dict[int, Dict]:
+def carregar_perigos(caminho_perigos: str) -> List[Dict[str, Any]]:
     """
     Excel esperado:
     id | perigo | consequencias | salvaguardas
@@ -63,50 +63,16 @@ def carregar_perigos(caminho_perigos: str) -> Dict[int, Dict]:
             f"Excel de Perigos inválido. Esperado {colunas}. Encontrado {set(df.columns)}"
         )
 
-    perigos = {}
+    perigos: List[Dict[str, Any]] = []
 
     for _, row in df.iterrows():
         perigo_id = int(row["id"])
 
-        perigos[perigo_id] = {
+        perigos.append({
             "id": perigo_id,
             "perigo": str(row["perigo"]).strip(),
             "consequencias": _parse_lista(row["consequencias"]),
             "salvaguardas": _parse_lista(row["salvaguardas"]),
-        }
+        })
 
     return perigos
-
-
-# ==================================================
-# BUILDER: ATIVIDADE + PASSOS (GERADO)
-# ==================================================
-
-def construir_atividades(perigos: Dict[int, Dict], epis: Dict[int, Dict]) -> List[Dict]:
-    """
-    Gera automaticamente:
-    - 1 atividade
-    - 1 passo por perigo
-    """
-    atividade = {
-        "atividade_id": 1,
-        "atividade": "Atividade gerada automaticamente",
-        "local": "Não especificado",
-        "funcao": "Não especificada",
-        "passos": [],
-    }
-
-    for idx, perigo in enumerate(perigos.values(), start=1):
-        passo = {
-            "ordem": idx,
-            "descricao": f"Controle do perigo: {perigo['perigo']}",
-            "perigos": [perigo["id"]],
-            "epis": list(epis.keys()),
-            "riscos": perigo["consequencias"],
-            "medidas_controle": perigo["salvaguardas"],
-            "normas": [],
-        }
-
-        atividade["passos"].append(passo)
-
-    return [atividade]
