@@ -7,19 +7,10 @@ from typing import Dict, List
 # ==================================================
 
 def _parse_lista(valor) -> List[str]:
-    """
-    Converte célula do Excel em lista de strings.
-    Aceita:
-    - valores separados por vírgula
-    - valor único
-    - NaN
-    """
     if pd.isna(valor):
         return []
-
     if isinstance(valor, str):
-        return [item.strip() for item in valor.split(",") if item.strip()]
-
+        return [v.strip() for v in valor.split(",") if v.strip()]
     return [str(valor).strip()]
 
 
@@ -88,61 +79,34 @@ def carregar_perigos(caminho_perigos: str) -> Dict[int, Dict]:
 
 
 # ==================================================
-# LOADER: ATIVIDADES / PASSOS
+# BUILDER: ATIVIDADE + PASSOS (GERADO)
 # ==================================================
 
-def carregar_atividades_passos(caminho_atividades: str) -> Dict[str, Dict]:
+def construir_atividades(perigos: Dict[int, Dict], epis: Dict[int, Dict]) -> List[Dict]:
     """
-    Excel esperado:
-    atividade_id | atividade | local | funcao |
-    ordem_passo | descricao_passo |
-    perigos | riscos | medidas_controle | epis | normas
+    Gera automaticamente:
+    - 1 atividade
+    - 1 passo por perigo
     """
-    df = pd.read_excel(caminho_atividades)
-
-    colunas = {
-        "atividade_id",
-        "atividade",
-        "local",
-        "funcao",
-        "ordem_passo",
-        "descricao_passo",
-        "perigos",
-        "riscos",
-        "medidas_controle",
-        "epis",
-        "normas",
+    atividade = {
+        "atividade_id": 1,
+        "atividade": "Atividade gerada automaticamente",
+        "local": "Não especificado",
+        "funcao": "Não especificada",
+        "passos": [],
     }
 
-    if not colunas.issubset(df.columns):
-        raise ValueError(
-            f"Excel de Atividades inválido. Esperado {colunas}. Encontrado {set(df.columns)}"
-        )
-
-    atividades = {}
-
-    for _, row in df.iterrows():
-        atividade_id = str(row["atividade_id"]).strip()
-
-        if atividade_id not in atividades:
-            atividades[atividade_id] = {
-                "atividade_id": atividade_id,
-                "atividade": str(row["atividade"]).strip(),
-                "local": str(row["local"]).strip(),
-                "funcao": str(row["funcao"]).strip(),
-                "passos": [],
-            }
-
+    for idx, perigo in enumerate(perigos.values(), start=1):
         passo = {
-            "ordem": int(row["ordem_passo"]),
-            "descricao": str(row["descricao_passo"]).strip(),
-            "perigos": _parse_lista(row["perigos"]),
-            "riscos": _parse_lista(row["riscos"]),
-            "medidas_controle": _parse_lista(row["medidas_controle"]),
-            "epis": _parse_lista(row["epis"]),
-            "normas": _parse_lista(row["normas"]),
+            "ordem": idx,
+            "descricao": f"Controle do perigo: {perigo['perigo']}",
+            "perigos": [perigo["id"]],
+            "epis": list(epis.keys()),
+            "riscos": perigo["consequencias"],
+            "medidas_controle": perigo["salvaguardas"],
+            "normas": [],
         }
 
-        atividades[atividade_id]["passos"].append(passo)
+        atividade["passos"].append(passo)
 
-    return atividades
+    return [atividade]
