@@ -1,7 +1,5 @@
-from typing import Dict, List
+from typing import Dict, List, Any
 from datetime import datetime
-import hashlib
-import json
 
 
 # ==============================
@@ -9,11 +7,11 @@ import json
 # ==============================
 
 def construir_documento(
-    atividades: Dict,
-    epis: Dict[int, Dict],
-    perigos: Dict[int, Dict],
+    atividades: List[Dict[str, Any]],
+    epis: List[Dict[str, Any]],
+    perigos: List[Dict[str, Any]],
     hashes: Dict[str, str],
-) -> Dict:
+) -> Dict[str, Any]:
     """
     Constrói o JSON técnico canônico da APR,
     pronto para PDF, IA e auditoria.
@@ -21,11 +19,15 @@ def construir_documento(
 
     documentos = []
 
-    for atividade_id, atividade in atividades.items():
+    # indexação rápida por ID
+    epis_index = _indexar_por_id(epis, "id")
+    perigos_index = _indexar_por_id(perigos, "id")
+
+    for atividade in atividades:
         documento = _construir_documento_atividade(
             atividade=atividade,
-            epis=epis,
-            perigos=perigos,
+            epis=epis_index,
+            perigos=perigos_index,
             hashes=hashes
         )
         documentos.append(documento)
@@ -43,15 +45,16 @@ def construir_documento(
 # ==============================
 
 def _construir_documento_atividade(
-    atividade: Dict,
+    atividade: Dict[str, Any],
     epis: Dict[int, Dict],
     perigos: Dict[int, Dict],
     hashes: Dict[str, str],
-) -> Dict:
+) -> Dict[str, Any]:
+
+    passos = atividade.get("passos", [])
 
     passos_consolidados = []
-
-    for passo in sorted(atividade["passos"], key=lambda p: p["ordem"]):
+    for passo in sorted(passos, key=lambda p: p.get("ordem", 0)):
         passos_consolidados.append(
             _construir_passo(passo, epis, perigos)
         )
@@ -60,10 +63,10 @@ def _construir_documento_atividade(
 
     documento = {
         "apr": {
-            "atividade_id": atividade["atividade_id"],
-            "atividade": atividade["atividade"],
-            "local": atividade["local"],
-            "funcao": atividade["funcao"],
+            "atividade_id": atividade.get("id") or atividade.get("atividade_id"),
+            "atividade": atividade.get("atividade"),
+            "local": atividade.get("local"),
+            "funcao": atividade.get("funcao"),
             "normas_base": normas_base
         },
         "passos": passos_consolidados,
@@ -82,26 +85,34 @@ def _construir_documento_atividade(
 # ==============================
 
 def _construir_passo(
-    passo: Dict,
+    passo: Dict[str, Any],
     epis: Dict[int, Dict],
     perigos: Dict[int, Dict]
-) -> Dict:
+) -> Dict[str, Any]:
 
     perigos_consolidados = []
     for perigo_id in passo.get("perigos", []):
-        perigo_id = int(perigo_id)
-        perigo = perigos[perigo_id]
-        perigos_consolidados.append(perigo)
+        try:
+            perigo_id = int(perigo_id)
+            perigo = perigos.get(perigo_id)
+            if perigo:
+                perigos_consolidados.append(perigo)
+        except (ValueError, TypeError):
+            continue
 
     epis_consolidados = []
     for epi_id in passo.get("epis", []):
-        epi_id = int(epi_id)
-        epi = epis[epi_id]
-        epis_consolidados.append(epi)
+        try:
+            epi_id = int(epi_id)
+            epi = epis.get(epi_id)
+            if epi:
+                epis_consolidados.append(epi)
+        except (ValueError, TypeError):
+            continue
 
     return {
-        "ordem": passo["ordem"],
-        "descricao": passo["descricao"],
+        "ordem": passo.get("ordem"),
+        "descricao": passo.get("descricao"),
         "perigos": perigos_consolidados,
         "riscos": passo.get("riscos", []),
         "medidas_controle": passo.get("medidas_controle", []),
@@ -114,7 +125,7 @@ def _construir_passo(
 # FUNÇÕES AUXILIARES
 # ==============================
 
-def _coletar_normas_base(passos: List[Dict]) -> List[str]:
+def _coletar_normas_base(passos: List[Dict[str, Any]]) -> List[str]:
     normas = set()
 
     for passo in passos:
@@ -125,4 +136,16 @@ def _coletar_normas_base(passos: List[Dict]) -> List[str]:
             for norma in epi.get("normas", []):
                 normas.add(norma)
 
-    return sorted(list(normas))
+    return sorted(normas)
+
+
+def _indexar_por_id(lista: List[Dict[str, Any]], campo_id: str) -> Dict[int, Dict]:
+    index = {}
+    for item in lista:
+        if campo_id not in item:
+            continue
+        try:
+            index[int(item[campo_id])] = item
+        except (ValueError, TypeError):
+            continue
+    return index
