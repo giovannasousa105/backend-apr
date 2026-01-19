@@ -1,3 +1,5 @@
+from consolidation.pdf import gerar_pdf_apr
+from fastapi.responses import FileResponse
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 import tempfile
@@ -135,4 +137,66 @@ def consolidar_documento(
         raise HTTPException(
             status_code=400,
             detail=f"Erro na consolidação: {str(e)}"
+        )
+@app.post("/documentos/consolidar/pdf")
+def consolidar_documento_pdf(
+    epis_file: UploadFile = File(...),
+    perigos_file: UploadFile = File(...),
+):
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # salvar arquivos temporários
+            epis_path = os.path.join(tmpdir, epis_file.filename)
+            perigos_path = os.path.join(tmpdir, perigos_file.filename)
+
+            with open(epis_path, "wb") as f:
+                shutil.copyfileobj(epis_file.file, f)
+
+            with open(perigos_path, "wb") as f:
+                shutil.copyfileobj(perigos_file.file, f)
+
+            # pipeline já validado
+            hashes = gerar_hashes_origem(
+                caminho_epis=epis_path,
+                caminho_perigos=perigos_path,
+            )
+
+            epis = carregar_epis(epis_path)
+            perigos = carregar_perigos(perigos_path)
+
+            atividades = gerar_atividades_por_ai(
+                perigos=perigos,
+                epis=epis
+            )
+
+            validar_documento(
+                atividades=atividades,
+                epis=epis,
+                perigos=perigos
+            )
+
+            documento = construir_documento(
+                atividades=atividades,
+                epis=epis,
+                perigos=perigos,
+                hashes=hashes
+            )
+
+            # gerar PDF
+            pdf_path = os.path.join(tmpdir, "apr.pdf")
+            gerar_pdf_apr(documento=documento, caminho_saida=pdf_path)
+
+            return FileResponse(
+                pdf_path,
+                media_type="application/pdf",
+                filename="APR.pdf"
+            )
+
+    except ValidationError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Erro na geração do PDF: {str(e)}"
         )
