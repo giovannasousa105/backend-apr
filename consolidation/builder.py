@@ -126,19 +126,33 @@ def _construir_passo(
 # FUNÇÕES AUXILIARES
 # ==============================
 
-def _coletar_normas_base(passos: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+def _coletar_normas_base(passos):
     normas = {}
 
     for passo in passos:
         for norma in passo.get("normas", []):
-            normas[norma] = norma
+            if isinstance(norma, dict):
+                codigo = norma.get("codigo")
+                titulo = norma.get("titulo")
+                if codigo and titulo:
+                    normas[codigo] = titulo
+            elif isinstance(norma, str):
+                normas[norma] = norma
 
         for epi in passo.get("epis", []):
             for norma in epi.get("normas", []):
-                normas[norma] = norma
+                if isinstance(norma, dict):
+                    codigo = norma.get("codigo")
+                    titulo = norma.get("titulo")
+                    if codigo and titulo:
+                        normas[codigo] = titulo
+                elif isinstance(norma, str):
+                    normas[norma] = norma
 
-    return [{"codigo": n, "titulo": n} for n in normas.keys()]
-
+    return [
+        {"codigo": codigo, "titulo": titulo}
+        for codigo, titulo in normas.items()
+    ]
 
 def _indexar_por_id(
     lista: List[Dict[str, Any]],
