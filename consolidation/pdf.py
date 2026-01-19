@@ -1,3 +1,4 @@
+raise RuntimeError("PDF.PY DEFINITIVAMENTE EXECUTADO")
 print(">>> PDF.PY FOI IMPORTADO <<<")
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
