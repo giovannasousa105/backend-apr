@@ -25,10 +25,12 @@ def construir_documento(
             },
             "passos": [],
             "audit": {
-                "hashes_origem": hashes,
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "origem": "excel_validado",
-            },
+    "hashes_origem": hashes if isinstance(hashes, dict) else {
+        f"arquivo_{i}": h for i, h in enumerate(hashes)
+    },
+    "timestamp": datetime.utcnow().isoformat() + "Z",
+    "origem": "excel_validado"
+}
         }
 
         for passo in atividade.get("passos", []):
