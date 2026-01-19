@@ -14,7 +14,7 @@ from reportlab.lib import colors
 
 def gerar_pdf_apr(documento: dict, caminho_saida: str):
     """
-    Gera PDF técnico da APR a partir do documento canônico.
+    Gera PDF técnico da APR a partir de UM documento canônico.
     """
 
     doc = SimpleDocTemplate(
@@ -36,7 +36,7 @@ def gerar_pdf_apr(documento: dict, caminho_saida: str):
     # ==========================
     # CAPA
     # ==========================
-    apr = documento["documentos"][0]["apr"]
+    apr = documento["apr"]
 
     elementos.append(Paragraph("ANÁLISE PRELIMINAR DE RISCO (APR)", style_title))
     elementos.append(Spacer(1, 12))
@@ -48,9 +48,7 @@ def gerar_pdf_apr(documento: dict, caminho_saida: str):
 
     elementos.append(Paragraph("<b>Normas Aplicáveis:</b>", style_normal))
     for norma in apr.get("normas_base", []):
-        elementos.append(
-            Paragraph(f"- {norma['codigo']}: {norma['titulo']}", style_normal)
-        )
+        elementos.append(Paragraph(f"- {norma}", style_normal))
 
     elementos.append(PageBreak())
 
@@ -60,31 +58,22 @@ def gerar_pdf_apr(documento: dict, caminho_saida: str):
     elementos.append(Paragraph("PASSOS OPERACIONAIS", style_h))
     elementos.append(Spacer(1, 12))
 
-    for passo in documento["documentos"][0]["passos"]:
+    for passo in documento["passos"]:
         elementos.append(Paragraph(f"<b>Passo {passo['ordem']}</b>", style_normal))
         elementos.append(Paragraph(passo["descricao"], style_normal))
         elementos.append(Spacer(1, 6))
 
-        # Perigos
         perigos = ", ".join([p["perigo"] for p in passo["perigos"]])
         elementos.append(Paragraph(f"<b>Perigos:</b> {perigos}", style_normal))
 
-        # Riscos
         riscos = ", ".join(passo.get("riscos", []))
         elementos.append(Paragraph(f"<b>Riscos:</b> {riscos}", style_normal))
 
-        # Consequências
-        consequencias = ", ".join(passo.get("consequencias", []))
-        elementos.append(Paragraph(f"<b>Consequências:</b> {consequencias}", style_normal))
+        medidas = ", ".join(passo.get("medidas_controle", []))
+        elementos.append(Paragraph(f"<b>Medidas de Controle:</b> {medidas}", style_normal))
 
-        # Medidas de controle (hierarquia)
-        elementos.append(Paragraph("<b>Medidas de Controle:</b>", style_normal))
-        for nivel, medidas in passo.get("medidas_controle", {}).items():
-            if medidas:
-                texto = ", ".join(map(str, medidas))
-                elementos.append(
-                    Paragraph(f"- <i>{nivel.capitalize()}</i>: {texto}", style_normal)
-                )
+        epis = ", ".join([e["epi"] for e in passo["epis"]])
+        elementos.append(Paragraph(f"<b>EPIs:</b> {epis}", style_normal))
 
         elementos.append(Spacer(1, 12))
 
@@ -95,7 +84,7 @@ def gerar_pdf_apr(documento: dict, caminho_saida: str):
     elementos.append(Paragraph("AUDITORIA E RASTREABILIDADE", style_h))
     elementos.append(Spacer(1, 12))
 
-    audit = documento["documentos"][0]["audit"]
+    audit = documento["audit"]
     elementos.append(Paragraph(f"<b>Timestamp:</b> {audit['timestamp']}", style_normal))
 
     elementos.append(Paragraph("<b>Hash dos arquivos de origem:</b>", style_normal))
