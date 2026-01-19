@@ -3,24 +3,68 @@ from datetime import datetime
 
 
 def construir_documento(
-    atividades: dict,   # 🔑 AGORA É DICT
-    epis: list,
-    perigos: list,
+    atividades: Dict[Any, Dict[str, Any]],
+    epis: List[Dict[str, Any]],
+    perigos: List[Dict[str, Any]],
     hashes: dict,
 ) -> dict:
+    """
+    Constrói o documento APR consolidado com passos normalizados.
+    """
 
     documentos = []
 
-    for atividade in atividades.values():  # 👈 FIX
+    # ==========================
+    # Garantias defensivas
+    # ==========================
+    if not isinstance(atividades, dict):
+        atividades = {}
+
+    if not isinstance(hashes, dict):
+        hashes = {}
+
+    # ==========================
+    # Indexação (performance + segurança)
+    # ==========================
+    epis_index = {
+        int(e.get("id", idx)): e
+        for idx, e in enumerate(epis)
+        if isinstance(e, dict)
+    }
+
+    perigos_index = {
+        int(p.get("id", idx)): p
+        for idx, p in enumerate(perigos)
+        if isinstance(p, dict)
+    }
+
+    # ==========================
+    # Construção dos documentos
+    # ==========================
+    for atividade in atividades.values():
+
+        passos_brutos = atividade.get("passos", [])
+        passos_consolidados = []
+
+        for passo in passos_brutos:
+            if isinstance(passo, dict):
+                passos_consolidados.append(
+                    _construir_passo(
+                        passo=passo,
+                        epis=epis_index,
+                        perigos=perigos_index,
+                    )
+                )
+
         documentos.append({
             "apr": {
                 "atividade_id": atividade.get("atividade_id"),
                 "atividade": atividade.get("atividade"),
                 "local": atividade.get("local"),
                 "funcao": atividade.get("funcao"),
-                "normas_base": [],
+                "normas_base": _extrair_normas_base(atividade),
             },
-            "passos": atividade.get("passos", []),
+            "passos": passos_consolidados,
             "audit": {
                 "hashes_origem": hashes,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -29,30 +73,9 @@ def construir_documento(
 
     return {
         "tipo_documento": "APR",
-        "documentos": documentos,
-    }
-
-    # 🔒 GARANTIA ABSOLUTA DE DICT
-    if isinstance(hashes, list):
-        hashes = {f"arquivo_{i}": v for i, v in enumerate(hashes)}
-    elif not isinstance(hashes, dict):
-        hashes = {}
-
-    for atividade in atividades:
-        documentos.append(
-            _construir_documento_atividade(
-                atividade=atividade,
-                epis=epis_index,
-                perigos=perigos_index,
-                hashes=hashes
-            )
-        )
-
-    return {
-        "tipo_documento": "APR",
         "versao_modelo": "1.0",
         "gerado_em": datetime.utcnow().isoformat() + "Z",
-        "documentos": documentos
+        "documentos": documentos,
     }
 
 
@@ -61,18 +84,27 @@ def _construir_passo(
     epis: Dict[int, Dict[str, Any]],
     perigos: Dict[int, Dict[str, Any]],
 ) -> Dict[str, Any]:
+    """
+    Consolida um passo individual com EPIs e Perigos resolvidos.
+    """
 
     perigos_consolidados = []
     for pid in passo.get("perigos", []):
-        pid = int(pid)
-        if pid in perigos:
-            perigos_consolidados.append(perigos[pid])
+        try:
+            pid = int(pid)
+            if pid in perigos:
+                perigos_consolidados.append(perigos[pid])
+        except Exception:
+            continue
 
     epis_consolidados = []
     for eid in passo.get("epis", []):
-        eid = int(eid)
-        if eid in epis:
-            epis_consolidados.append(epis[eid])
+        try:
+            eid = int(eid)
+            if eid in epis:
+                epis_consolidados.append(epis[eid])
+        except Exception:
+            continue
 
     return {
         "ordem": passo.get("ordem"),
@@ -87,7 +119,8 @@ def _construir_passo(
 
 def _extrair_normas_base(atividade: Dict[str, Any]) -> List[str]:
     """
-    Retorna apenas lista simples de normas (SEM dicts)
+    Extrai lista única de normas a partir dos passos.
+    Retorna apenas strings (seguro para API e PDF).
     """
 
     normas = set()
