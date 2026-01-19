@@ -36,15 +36,16 @@ def gerar_atividades_por_ai(
         if perigo_id is None:
             continue
 
-        passo = {
-            "ordem": ordem,
-            "descricao": f"Tratativa do perigo: {perigo.get('perigo', 'Perigo não informado')}",
-            "perigos": [perigo_id],
-            "riscos": perigo.get("consequencias", []),
-            "medidas_controle": perigo.get("salvaguardas", []),
-            "epis": epis_ids,
-            "normas": []
-        }
+passo = {
+    "ordem": ordem,
+    "descricao": f"Execução segura relacionada ao perigo: {perigo.get('perigo')}",
+    "perigos": [perigo_id],
+    "riscos": perigo.get("riscos", []),
+    "consequencias": perigo.get("consequencias", []),
+    "medidas_controle": perigo.get("salvaguardas", []),
+    "epis": epis_ids,
+    "normas": []
+}
 
         atividade["passos"].append(passo)
 
