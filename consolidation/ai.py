@@ -42,9 +42,16 @@ passo = {
     "perigos": [perigo_id],
     "riscos": perigo.get("riscos", []),
     "consequencias": perigo.get("consequencias", []),
-    "medidas_controle": perigo.get("salvaguardas", []),
+    "medidas_controle": medidas_controle,
     "epis": epis_ids,
     "normas": []
+}
+   medidas_controle = {
+    "eliminacao": [],
+    "substituicao": [],
+    "engenharia": perigo.get("salvaguardas", []),
+    "administrativa": [],
+    "epi": epis_ids,
 }
 
         atividade["passos"].append(passo)

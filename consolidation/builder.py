@@ -110,16 +110,16 @@ def _construir_passo(
         except (ValueError, TypeError):
             continue
 
-    return {
-        "ordem": passo.get("ordem"),
-        "descricao": passo.get("descricao"),
-        "perigos": perigos_consolidados,
-        "riscos": passo.get("riscos", []),
-        "medidas_controle": passo.get("medidas_controle", []),
-        "epis": epis_consolidados,
-        "normas": passo.get("normas", [])
-    }
-
+return {
+    "ordem": passo.get("ordem"),
+    "descricao": passo.get("descricao"),
+    "perigos": perigos_consolidados,
+    "riscos": passo.get("riscos", []),
+    "consequencias": passo.get("consequencias", []),
+    "medidas_controle": passo.get("medidas_controle", {}),
+    "epis": epis_consolidados,
+    "normas": passo.get("normas", [])
+}
 
 # ==============================
 # FUNÇÕES AUXILIARES
