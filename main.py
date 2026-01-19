@@ -22,6 +22,9 @@ import schemas
 
 app = FastAPI()
 
+@app.get("/health")
+def health():
+    return {"ok": True}
 
 # ==================================================
 # DB
@@ -138,3 +141,6 @@ def consolidar_documento_pdf(
             status_code=400,
             detail=f"Erro na geração do PDF: {str(e)}",
         )
+@app.post("/documentos/consolidar/pdf")
+def consolidar_documento_pdf_test():
+    return {"status": "pdf endpoint registrado"}
