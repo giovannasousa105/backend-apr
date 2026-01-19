@@ -11,7 +11,6 @@ from reportlab.lib.pagesizes import A4
 def gerar_pdf_apr(documento: dict, caminho_saida: str):
     """
     Gera PDF técnico da APR a partir de UM documento canônico.
-    Estrutura defensiva (nunca quebra).
     """
 
     doc = SimpleDocTemplate(
@@ -33,19 +32,21 @@ def gerar_pdf_apr(documento: dict, caminho_saida: str):
     # ==========================
     # CAPA
     # ==========================
-    apr = documento.get("apr", {})
+    apr = documento["apr"]
 
     elementos.append(Paragraph("ANÁLISE PRELIMINAR DE RISCO (APR)", style_title))
     elementos.append(Spacer(1, 12))
 
-    elementos.append(Paragraph(f"<b>Atividade:</b> {apr.get('atividade','')}", style_normal))
-    elementos.append(Paragraph(f"<b>Local:</b> {apr.get('local','')}", style_normal))
-    elementos.append(Paragraph(f"<b>Função:</b> {apr.get('funcao','')}", style_normal))
+    elementos.append(Paragraph(f"<b>Atividade:</b> {apr.get('atividade')}", style_normal))
+    elementos.append(Paragraph(f"<b>Local:</b> {apr.get('local')}", style_normal))
+    elementos.append(Paragraph(f"<b>Função:</b> {apr.get('funcao')}", style_normal))
     elementos.append(Spacer(1, 12))
 
     elementos.append(Paragraph("<b>Normas Aplicáveis:</b>", style_normal))
     for norma in apr.get("normas_base", []):
-        elementos.append(Paragraph(f"- {norma}", style_normal))
+        elementos.append(
+            Paragraph(f"- {norma['codigo']}: {norma['titulo']}", style_normal)
+        )
 
     elementos.append(PageBreak())
 
@@ -55,33 +56,21 @@ def gerar_pdf_apr(documento: dict, caminho_saida: str):
     elementos.append(Paragraph("PASSOS OPERACIONAIS", style_h))
     elementos.append(Spacer(1, 12))
 
-    for passo in documento.get("passos", []):
-        elementos.append(Paragraph(f"<b>Passo {passo.get('ordem')}</b>", style_normal))
-        elementos.append(Paragraph(passo.get("descricao",""), style_normal))
+    for passo in documento["passos"]:
+        elementos.append(Paragraph(f"<b>Passo {passo['ordem']}</b>", style_normal))
+        elementos.append(Paragraph(passo["descricao"], style_normal))
         elementos.append(Spacer(1, 6))
 
-        perigos = ", ".join(p.get("perigo","") for p in passo.get("perigos", []))
+        perigos = ", ".join([p["perigo"] for p in passo.get("perigos", [])])
         elementos.append(Paragraph(f"<b>Perigos:</b> {perigos}", style_normal))
 
         riscos = ", ".join(passo.get("riscos", []))
         elementos.append(Paragraph(f"<b>Riscos:</b> {riscos}", style_normal))
 
-        # 🔑 MEDIDAS — aceita dict OU list
-        elementos.append(Paragraph("<b>Medidas de Controle:</b>", style_normal))
-        mc = passo.get("medidas_controle", {})
+        medidas = ", ".join(map(str, passo.get("medidas_controle", {}).values()))
+        elementos.append(Paragraph(f"<b>Medidas de Controle:</b> {medidas}", style_normal))
 
-        if isinstance(mc, dict):
-            for nivel, medidas in mc.items():
-                if medidas:
-                    elementos.append(
-                        Paragraph(f"- {nivel.capitalize()}: {', '.join(map(str, medidas))}", style_normal)
-                    )
-        elif isinstance(mc, list):
-            elementos.append(
-                Paragraph("- " + ", ".join(map(str, mc)), style_normal)
-            )
-
-        epis = ", ".join(e.get("epi","") for e in passo.get("epis", []))
+        epis = ", ".join([e["epi"] for e in passo.get("epis", [])])
         elementos.append(Paragraph(f"<b>EPIs:</b> {epis}", style_normal))
 
         elementos.append(Spacer(1, 12))
@@ -93,20 +82,21 @@ def gerar_pdf_apr(documento: dict, caminho_saida: str):
     elementos.append(Paragraph("AUDITORIA E RASTREABILIDADE", style_h))
     elementos.append(Spacer(1, 12))
 
-    audit = documento.get("audit", {})
-    elementos.append(Paragraph(f"<b>Timestamp:</b> {audit.get('timestamp','')}", style_normal))
+    audit = documento["audit"]
+
+    elementos.append(
+        Paragraph(f"<b>Timestamp:</b> {audit['timestamp']}", style_normal)
+    )
 
     elementos.append(Paragraph("<b>Hash dos arquivos de origem:</b>", style_normal))
-    hashes = audit.get("hashes_origem", [])
 
-    # 🔑 aceita LIST ou DICT
-    if isinstance(hashes, dict):
-        for nome, valor in hashes.items():
-            elementos.append(Paragraph(f"- {nome}: {valor}", style_normal))
-    elif isinstance(hashes, list):
-        for item in hashes:
-            elementos.append(
-                Paragraph(f"- {item.get('arquivo','')}: {item.get('hash','')}", style_normal)
+    # ✅ AGORA CORRETO: ITERA LISTA, NÃO DICT
+    for item in audit.get("hashes_origem", []):
+        elementos.append(
+            Paragraph(
+                f"- {item['arquivo']}: {item['hash']}",
+                style_normal
             )
+        )
 
     doc.build(elementos)
