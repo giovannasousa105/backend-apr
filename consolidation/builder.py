@@ -71,12 +71,22 @@ def _construir_documento_atividade(
         },
         "passos": passos_consolidados,
         "audit": {
-            "hashes_origem": hashes,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "origem": "excel_validado"
-        }
-    }
+           # normalizar hashes_origem para LISTA
+hashes_origem_norm = []
 
+if isinstance(hashes, dict):
+    hashes_origem_norm = [
+        {"arquivo": nome, "hash": valor}
+        for nome, valor in hashes.items()
+    ]
+elif isinstance(hashes, list):
+    hashes_origem_norm = hashes
+
+"audit": {
+    "hashes_origem": hashes_origem_norm,
+    "timestamp": datetime.utcnow().isoformat() + "Z",
+    "origem": "excel_validado"
+}
     return documento
 
 
