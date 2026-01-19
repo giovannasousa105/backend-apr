@@ -3,48 +3,56 @@ from datetime import datetime
 
 
 def construir_documento(
-    atividades: Dict[int, Dict[str, Any]],
-    epis: Dict[int, Dict[str, Any]],
-    perigos: Dict[int, Dict[str, Any]],
-    hashes: Dict[str, str],
-) -> Dict[str, Any]:
-    """
-    Constrói o JSON canônico da APR
-    """
+    atividades: dict,   # 🔑 AGORA É DICT
+    epis: list,
+    perigos: list,
+    hashes: dict,
+) -> dict:
 
     documentos = []
 
-    for atividade in atividades.values():
-        documento = {
+    for atividade in atividades.values():  # 👈 FIX
+        documentos.append({
             "apr": {
                 "atividade_id": atividade.get("atividade_id"),
                 "atividade": atividade.get("atividade"),
                 "local": atividade.get("local"),
                 "funcao": atividade.get("funcao"),
-                "normas_base": _extrair_normas_base(atividade),
+                "normas_base": [],
             },
-            "passos": [],
+            "passos": atividade.get("passos", []),
             "audit": {
-    "hashes_origem": hashes if isinstance(hashes, dict) else {
-        f"arquivo_{i}": h for i, h in enumerate(hashes)
-    },
-    "timestamp": datetime.utcnow().isoformat() + "Z",
-    "origem": "excel_validado"
-}
-        }
+                "hashes_origem": hashes,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            }
+        })
 
-        for passo in atividade.get("passos", []):
-            documento["passos"].append(
-                _construir_passo(passo, epis, perigos)
+    return {
+        "tipo_documento": "APR",
+        "documentos": documentos,
+    }
+
+    # 🔒 GARANTIA ABSOLUTA DE DICT
+    if isinstance(hashes, list):
+        hashes = {f"arquivo_{i}": v for i, v in enumerate(hashes)}
+    elif not isinstance(hashes, dict):
+        hashes = {}
+
+    for atividade in atividades:
+        documentos.append(
+            _construir_documento_atividade(
+                atividade=atividade,
+                epis=epis_index,
+                perigos=perigos_index,
+                hashes=hashes
             )
-
-        documentos.append(documento)
+        )
 
     return {
         "tipo_documento": "APR",
         "versao_modelo": "1.0",
         "gerado_em": datetime.utcnow().isoformat() + "Z",
-        "documentos": documentos,
+        "documentos": documentos
     }
 
 
