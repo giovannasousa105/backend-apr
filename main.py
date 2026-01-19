@@ -69,77 +69,72 @@ def criar_apr(apr: schemas.APRCreate, db: Session = Depends(get_db)):
 # ==================================================
 # DOCUMENTOS — CONSOLIDAÇÃO
 # ==================================================
-@app.post("/documentos/consolidar")
-def consolidar_documento(
+@app.post("/documentos/consolidar/pdf")
+def consolidar_documento_pdf(
     epis_file: UploadFile = File(...),
     perigos_file: UploadFile = File(...),
 ):
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
-            # caminhos temporários
             epis_path = os.path.join(tmpdir, epis_file.filename)
             perigos_path = os.path.join(tmpdir, perigos_file.filename)
 
-            # salvar arquivos
             with open(epis_path, "wb") as f:
                 shutil.copyfileobj(epis_file.file, f)
 
             with open(perigos_path, "wb") as f:
                 shutil.copyfileobj(perigos_file.file, f)
 
-            # 1️⃣ Hash (auditoria)
             hashes = gerar_hashes_origem(
                 caminho_epis=epis_path,
                 caminho_perigos=perigos_path,
             )
 
-            # 2️⃣ Loader
             epis = carregar_epis(epis_path)
             perigos = carregar_perigos(perigos_path)
 
-            if not epis:
-                raise ValueError("Nenhum EPI carregado")
-            if not perigos:
-                raise ValueError("Nenhum perigo carregado")
-
-            # 3️⃣ IA gera atividades (LIST)
             atividades_lista = gerar_atividades_por_ai(
                 perigos=perigos,
                 epis=epis,
             )
 
-            # 4️⃣ CONVERSÃO LIST → DICT
             atividades = {
                 a["atividade_id"]: a
                 for a in atividades_lista
             }
 
-            # 5️⃣ Validação técnica
             validar_documento(
                 atividades=atividades,
                 epis=epis,
                 perigos=perigos,
             )
 
-            # 6️⃣ Builder
-            documento = construir_documento(
+            documento_completo = construir_documento(
                 atividades=atividades,
                 epis=epis,
                 perigos=perigos,
                 hashes=hashes,
             )
 
-            return {
-                "status": "consolidado",
-                "hashes": hashes,
-                "documento": documento,
-            }
+            # 🔑 PEGAR APENAS UM DOCUMENTO PARA PDF
+            documento_pdf = documento_completo["documentos"][0]
+
+            pdf_path = os.path.join(tmpdir, "APR.pdf")
+            gerar_pdf_apr(
+                documento=documento_pdf,
+                caminho_saida=pdf_path,
+            )
+
+            return FileResponse(
+                pdf_path,
+                media_type="application/pdf",
+                filename="APR.pdf",
+            )
 
     except ValidationError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"Erro na consolidação: {str(e)}",
+            detail=f"Erro na geração do PDF: {str(e)}",
         )
-
