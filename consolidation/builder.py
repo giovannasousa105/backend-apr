@@ -125,19 +125,23 @@ def _construir_passo(
 # FUNÇÕES AUXILIARES
 # ==============================
 
-def _coletar_normas_base(passos: List[Dict[str, Any]]) -> List[str]:
-    normas = set()
+def _coletar_normas_base(passos):
+    normas = {}
 
     for passo in passos:
         for norma in passo.get("normas", []):
-            normas.add(norma)
+            if norma in NORMAS_NR:
+                normas[norma] = NORMAS_NR[norma]
 
         for epi in passo.get("epis", []):
             for norma in epi.get("normas", []):
-                normas.add(norma)
+                if norma in NORMAS_NR:
+                    normas[norma] = NORMAS_NR[norma]
 
-    return sorted(normas)
-
+    return [
+        {"codigo": codigo, "titulo": titulo}
+        for codigo, titulo in normas.items()
+    ]
 
 def _indexar_por_id(lista: List[Dict[str, Any]], campo_id: str) -> Dict[int, Dict]:
     index = {}
