@@ -110,7 +110,7 @@ def _construir_passo(
         except (ValueError, TypeError):
             continue
 
-return {
+    return {
     "ordem": passo.get("ordem"),
     "descricao": passo.get("descricao"),
     "perigos": perigos_consolidados,
