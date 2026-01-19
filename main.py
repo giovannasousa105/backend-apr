@@ -104,10 +104,15 @@ def consolidar_documento(
                 raise ValueError("Nenhum perigo carregado")
 
             # 3️⃣ IA gera atividades / passos
-            atividades = gerar_atividades_por_ai(
-                perigos=perigos,
-                epis=epis
-            )
+        atividades_lista = gerar_atividades_por_ai(
+        perigos=perigos,
+        epis=epis
+        )
+
+        atividades = {
+            a["atividade_id"]: a
+            for a in atividades_lista
+        }
 
             # 4️⃣ Validação técnica (NR / engenharia)
             validar_documento(
