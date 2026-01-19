@@ -9,52 +9,59 @@ def construir_documento(
     hashes: dict,
 ) -> dict:
     """
-    Constrói o documento APR consolidado com passos normalizados.
+    Builder de domínio (APR).
+    Produz estrutura rica, mas SEM ambiguidade de tipo.
     """
 
     documentos = []
 
-    # ==========================
-    # Garantias defensivas
-    # ==========================
     if not isinstance(atividades, dict):
         atividades = {}
 
     if not isinstance(hashes, dict):
         hashes = {}
 
-    # ==========================
-    # Indexação (performance + segurança)
-    # ==========================
+    # Indexação segura
     epis_index = {
-        int(e.get("id", idx)): e
-        for idx, e in enumerate(epis)
+        int(e.get("id", i)): e
+        for i, e in enumerate(epis)
         if isinstance(e, dict)
     }
 
     perigos_index = {
-        int(p.get("id", idx)): p
-        for idx, p in enumerate(perigos)
+        int(p.get("id", i)): p
+        for i, p in enumerate(perigos)
         if isinstance(p, dict)
     }
 
-    # ==========================
-    # Construção dos documentos
-    # ==========================
     for atividade in atividades.values():
 
-        passos_brutos = atividade.get("passos", [])
-        passos_consolidados = []
+        passos_finais = []
 
-        for passo in passos_brutos:
-            if isinstance(passo, dict):
-                passos_consolidados.append(
-                    _construir_passo(
-                        passo=passo,
-                        epis=epis_index,
-                        perigos=perigos_index,
-                    )
-                )
+        for passo in atividade.get("passos", []):
+            if not isinstance(passo, dict):
+                continue
+
+            passos_finais.append({
+                "ordem": passo.get("ordem"),
+                "descricao": passo.get("descricao"),
+                "riscos": passo.get("riscos", []),
+                "medidas_controle": passo.get("medidas_controle", []),
+                "normas": passo.get("normas", []),
+
+                # 👇 AQUI É O PONTO CRÍTICO: SEMPRE LISTA DE STRINGS
+                "epis": [
+                    str(epis_index.get(int(eid), {}).get("nome", eid))
+                    for eid in passo.get("epis", [])
+                    if str(eid).isdigit()
+                ],
+
+                "perigos": [
+                    str(perigos_index.get(int(pid), {}).get("descricao", pid))
+                    for pid in passo.get("perigos", [])
+                    if str(pid).isdigit()
+                ],
+            })
 
         documentos.append({
             "apr": {
@@ -64,7 +71,7 @@ def construir_documento(
                 "funcao": atividade.get("funcao"),
                 "normas_base": _extrair_normas_base(atividade),
             },
-            "passos": passos_consolidados,
+            "passos": passos_finais,
             "audit": {
                 "hashes_origem": hashes,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -79,50 +86,7 @@ def construir_documento(
     }
 
 
-def _construir_passo(
-    passo: Dict[str, Any],
-    epis: Dict[int, Dict[str, Any]],
-    perigos: Dict[int, Dict[str, Any]],
-) -> Dict[str, Any]:
-    """
-    Consolida um passo individual com EPIs e Perigos resolvidos.
-    """
-
-    perigos_consolidados = []
-    for pid in passo.get("perigos", []):
-        try:
-            pid = int(pid)
-            if pid in perigos:
-                perigos_consolidados.append(perigos[pid])
-        except Exception:
-            continue
-
-    epis_consolidados = []
-    for eid in passo.get("epis", []):
-        try:
-            eid = int(eid)
-            if eid in epis:
-                epis_consolidados.append(epis[eid])
-        except Exception:
-            continue
-
-    return {
-        "ordem": passo.get("ordem"),
-        "descricao": passo.get("descricao"),
-        "perigos": perigos_consolidados,
-        "riscos": passo.get("riscos", []),
-        "medidas_controle": passo.get("medidas_controle", []),
-        "epis": epis_consolidados,
-        "normas": passo.get("normas", []),
-    }
-
-
 def _extrair_normas_base(atividade: Dict[str, Any]) -> List[str]:
-    """
-    Extrai lista única de normas a partir dos passos.
-    Retorna apenas strings (seguro para API e PDF).
-    """
-
     normas = set()
 
     for passo in atividade.get("passos", []):

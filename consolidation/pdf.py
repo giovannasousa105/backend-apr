@@ -6,48 +6,13 @@ import html
 from typing import Any
 
 
-def normalizar_documento(dados: Any) -> dict:
-    """
-    NORMALIZA QUALQUER ENTRADA PARA DICT
-
-    - list      -> {"registros": list}
-    - dict      -> dict
-    - outros    -> {"valor": str(obj)}
-
-    Garante que o PDF sempre receba um dict
-    """
-    try:
-        if isinstance(dados, dict):
-            return dados
-
-        if isinstance(dados, list):
-            return {"registros": dados}
-
-        return {"valor": str(dados)}
-
-    except Exception as e:
-        return {"erro_normalizacao": str(e)}
-
-
 def gerar_pdf_apr(documento: Any, caminho_saida: str):
     """
-    GERADOR DE PDF ULTRA-ROBUSTO
-
-    ✔ Aceita dict, list, qualquer objeto
-    ✔ Nunca assume estrutura
-    ✔ Nunca usa .keys()
-    ✔ Nunca lança exceção estrutural
-    ✔ Ideal para produção (APR, relatórios, auditorias)
+    Gerador de PDF FINAL.
+    Aceita SOMENTE estrutura já normalizada.
+    Nunca chama .keys() em listas.
     """
 
-    # ==========================
-    # NORMALIZA ENTRADA
-    # ==========================
-    documento = normalizar_documento(documento)
-
-    # ==========================
-    # CONFIGURA PDF
-    # ==========================
     doc = SimpleDocTemplate(
         caminho_saida,
         pagesize=A4,
@@ -63,41 +28,21 @@ def gerar_pdf_apr(documento: Any, caminho_saida: str):
 
     elementos = []
 
-    # ==========================
-    # TÍTULO
-    # ==========================
     elementos.append(
         Paragraph("ANÁLISE PRELIMINAR DE RISCO (APR)", style_title)
     )
     elementos.append(Spacer(1, 20))
 
-    # ==========================
-    # CONTEÚDO (RAW DEFENSIVO)
-    # ==========================
-    try:
-        texto = json.dumps(
-            documento,
-            ensure_ascii=False,
-            indent=2,
-            default=str
-        )
-    except Exception:
-        texto = str(documento)
+    texto = json.dumps(
+        documento,
+        ensure_ascii=False,
+        indent=2,
+        default=str
+    )
 
     for linha in texto.split("\n"):
-        linha_segura = html.escape(linha)
-        elementos.append(Paragraph(linha_segura, style_normal))
+        elementos.append(
+            Paragraph(html.escape(linha), style_normal)
+        )
 
-    # ==========================
-    # BUILD FINAL (NUNCA QUEBRA)
-    # ==========================
-    try:
-        doc.build(elementos)
-    except Exception as e:
-        # fallback extremo: PDF mínimo
-        elementos_fallback = [
-            Paragraph("Erro ao gerar PDF APR", style_title),
-            Spacer(1, 12),
-            Paragraph(html.escape(str(e)), style_normal),
-        ]
-        doc.build(elementos_fallback)
+    doc.build(elementos)
