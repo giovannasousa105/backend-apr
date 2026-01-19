@@ -3,19 +3,51 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
 import json
 import html
+from typing import Any
 
 
-def gerar_pdf_apr(documento: dict, caminho_saida: str):
+def normalizar_documento(dados: Any) -> dict:
     """
-    GERADOR DE PDF ULTRA-DEFENSIVO
+    NORMALIZA QUALQUER ENTRADA PARA DICT
 
-    - Aceita QUALQUER dict
-    - Não assume estrutura
-    - Não acessa keys específicas
-    - Não itera listas internas
-    - Nunca lança exceção estrutural
+    - list      -> {"registros": list}
+    - dict      -> dict
+    - outros    -> {"valor": str(obj)}
+
+    Garante que o PDF sempre receba um dict
+    """
+    try:
+        if isinstance(dados, dict):
+            return dados
+
+        if isinstance(dados, list):
+            return {"registros": dados}
+
+        return {"valor": str(dados)}
+
+    except Exception as e:
+        return {"erro_normalizacao": str(e)}
+
+
+def gerar_pdf_apr(documento: Any, caminho_saida: str):
+    """
+    GERADOR DE PDF ULTRA-ROBUSTO
+
+    ✔ Aceita dict, list, qualquer objeto
+    ✔ Nunca assume estrutura
+    ✔ Nunca usa .keys()
+    ✔ Nunca lança exceção estrutural
+    ✔ Ideal para produção (APR, relatórios, auditorias)
     """
 
+    # ==========================
+    # NORMALIZA ENTRADA
+    # ==========================
+    documento = normalizar_documento(documento)
+
+    # ==========================
+    # CONFIGURA PDF
+    # ==========================
     doc = SimpleDocTemplate(
         caminho_saida,
         pagesize=A4,
@@ -40,7 +72,7 @@ def gerar_pdf_apr(documento: dict, caminho_saida: str):
     elementos.append(Spacer(1, 20))
 
     # ==========================
-    # CONTEÚDO COMPLETO (RAW)
+    # CONTEÚDO (RAW DEFENSIVO)
     # ==========================
     try:
         texto = json.dumps(
@@ -57,6 +89,15 @@ def gerar_pdf_apr(documento: dict, caminho_saida: str):
         elementos.append(Paragraph(linha_segura, style_normal))
 
     # ==========================
-    # BUILD FINAL
+    # BUILD FINAL (NUNCA QUEBRA)
     # ==========================
-    doc.build(elementos)
+    try:
+        doc.build(elementos)
+    except Exception as e:
+        # fallback extremo: PDF mínimo
+        elementos_fallback = [
+            Paragraph("Erro ao gerar PDF APR", style_title),
+            Spacer(1, 12),
+            Paragraph(html.escape(str(e)), style_normal),
+        ]
+        doc.build(elementos_fallback)
