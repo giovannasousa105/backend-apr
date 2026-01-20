@@ -10,7 +10,6 @@ from reportlab.platypus import (
     Spacer,
     Table,
     TableStyle,
-    PageBreak,
 )
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -27,7 +26,6 @@ def _to_str(v: Any) -> str:
         return str(v)
     if isinstance(v, str):
         return v
-    # lista/dict/objetos -> json legível
     try:
         return json.dumps(v, ensure_ascii=False, indent=2, default=str)
     except Exception:
@@ -44,40 +42,6 @@ def _as_list(v: Any) -> List[Any]:
 
 def _safe_para(text: Any, style: ParagraphStyle) -> Paragraph:
     return Paragraph(html.escape(_to_str(text)).replace("\n", "<br/>"), style)
-
-
-def _get_atividades(documento: Any) -> List[Dict[str, Any]]:
-    """
-    Aceita:
-    - documento dict com chave "atividades"
-    - documento dict já sendo atividades (mapeado por id)
-    - documento list de atividades
-    Retorna lista de dicts.
-    """
-    if documento is None:
-        return []
-
-    # caso 1: dict com "atividades"
-    if isinstance(documento, dict) and "atividades" in documento:
-        return [a for a in _as_list(documento.get("atividades")) if isinstance(a, dict)]
-
-    # caso 2: list direto
-    if isinstance(documento, list):
-        return [a for a in documento if isinstance(a, dict)]
-
-    # caso 3: dict mapeado por id -> values
-    if isinstance(documento, dict):
-        vals = list(documento.values())
-        if vals and all(isinstance(x, dict) for x in vals):
-            return vals
-
-        # último fallback: tenta achar algo que pareça atividade
-        # (ex.: {"data": [...]} )
-        for v in documento.values():
-            if isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
-                return v
-
-    return []
 
 
 def _make_kv_table(data: Dict[str, Any]) -> Table:
@@ -105,14 +69,15 @@ def _make_kv_table(data: Dict[str, Any]) -> Table:
     return tbl
 
 
+def _is_builder_format(documento: Any) -> bool:
+    return isinstance(documento, dict) and isinstance(documento.get("documentos"), list)
+
+
 def gerar_pdf_apr(documento: Any, caminho_saida: str):
     """
-    Gerador de PDF FINAL (bonito e robusto).
-
-    - Não assume formato rígido.
-    - Nunca chama .keys() em listas.
-    - Tenta renderizar uma APR em seções (Atividades -> Passos).
-    - Se não conseguir estruturar, faz fallback para JSON.
+    PDF compatível com:
+    A) builder -> {"tipo_documento":..., "documentos":[{"apr":{...},"passos":[...]}]}
+    B) formato antigo -> atividades -> {"atividades":[...]} etc.
     """
 
     doc = SimpleDocTemplate(
@@ -127,31 +92,10 @@ def gerar_pdf_apr(documento: Any, caminho_saida: str):
     styles = getSampleStyleSheet()
 
     style_title = styles["Title"]
-    style_h2 = ParagraphStyle(
-        "H2",
-        parent=styles["Heading2"],
-        spaceBefore=10,
-        spaceAfter=6,
-    )
-    style_h3 = ParagraphStyle(
-        "H3",
-        parent=styles["Heading3"],
-        spaceBefore=8,
-        spaceAfter=4,
-    )
-    style_normal = ParagraphStyle(
-        "NormalSmall",
-        parent=styles["Normal"],
-        fontSize=10,
-        leading=13,
-    )
-    style_mono = ParagraphStyle(
-        "Mono",
-        parent=styles["Normal"],
-        fontName="Courier",
-        fontSize=8.5,
-        leading=10.5,
-    )
+    style_h2 = ParagraphStyle("H2", parent=styles["Heading2"], spaceBefore=10, spaceAfter=6)
+    style_h3 = ParagraphStyle("H3", parent=styles["Heading3"], spaceBefore=8, spaceAfter=4)
+    style_normal = ParagraphStyle("NormalSmall", parent=styles["Normal"], fontSize=10, leading=13)
+    style_mono = ParagraphStyle("Mono", parent=styles["Normal"], fontName="Courier", fontSize=8.5, leading=10.5)
 
     elementos = []
 
@@ -159,40 +103,52 @@ def gerar_pdf_apr(documento: Any, caminho_saida: str):
     elementos.append(Paragraph("ANÁLISE PRELIMINAR DE RISCO (APR)", style_title))
     elementos.append(Spacer(1, 12))
 
-    # METADADOS (se existir)
-    if isinstance(documento, dict):
-        meta_keys = ["titulo", "empresa", "obra", "local", "data", "responsavel", "setor"]
-        meta = {k: documento.get(k) for k in meta_keys if k in documento and documento.get(k) is not None}
-        if meta:
-            elementos.append(Paragraph("Dados gerais", style_h2))
-            elementos.append(_make_kv_table(meta))
-            elementos.append(Spacer(1, 10))
-
-    # ATIVIDADES
-    atividades = _get_atividades(documento)
-
-    if atividades:
-        elementos.append(Paragraph("Atividades", style_h2))
+    # ============================
+    # FORMATO A: BUILDER
+    # ============================
+    if _is_builder_format(documento):
+        elementos.append(Paragraph("Documentos", style_h2))
         elementos.append(Spacer(1, 6))
 
-        for idx, atv in enumerate(atividades, start=1):
-            nome = atv.get("atividade") or atv.get("nome") or atv.get("titulo") or f"Atividade {idx}"
-            atividade_id = atv.get("atividade_id") or atv.get("id") or f"{idx}"
+        docs = documento.get("documentos", [])
+        for idx, d in enumerate(docs, start=1):
+            if not isinstance(d, dict):
+                continue
 
-            elementos.append(Paragraph(f"{html.escape(str(nome))}", style_h3))
-            elementos.append(_safe_para(f"ID: {atividade_id}", style_normal))
-            elementos.append(Spacer(1, 6))
+            apr = d.get("apr", {})
+            passos = d.get("passos", [])
 
-            passos = atv.get("passos", [])
+            if not isinstance(apr, dict):
+                apr = {}
             if not isinstance(passos, list):
                 passos = []
 
+            titulo = apr.get("atividade") or f"APR {idx}"
+            atividade_id = apr.get("atividade_id") or idx
+
+            elementos.append(Paragraph(html.escape(str(titulo)), style_h3))
+            elementos.append(_safe_para(f"ID: {atividade_id}", style_normal))
+            elementos.append(Spacer(1, 6))
+
+            # dados da APR (apr dict)
+            dados_apr = {}
+            for k in ["local", "funcao"]:
+                if apr.get(k) is not None:
+                    dados_apr[k] = apr.get(k)
+
+            normas_base = apr.get("normas_base")
+            if normas_base:
+                dados_apr["normas_base"] = normas_base
+
+            if dados_apr:
+                elementos.append(_make_kv_table(dados_apr))
+                elementos.append(Spacer(1, 8))
+
             if not passos:
-                elementos.append(_safe_para("⚠️ Sem passos cadastrados nesta atividade.", style_normal))
+                elementos.append(_safe_para("⚠️ Sem passos cadastrados nesta APR.", style_normal))
                 elementos.append(Spacer(1, 10))
                 continue
 
-            # Render dos passos
             for p in passos:
                 if not isinstance(p, dict):
                     continue
@@ -203,10 +159,8 @@ def gerar_pdf_apr(documento: Any, caminho_saida: str):
                 elementos.append(_safe_para(f"Passo {ordem}", style_normal))
                 elementos.append(_safe_para(desc, style_normal))
 
-                # Bloco técnico (perigos/epis/riscos/medidas/normas)
                 detalhes = []
 
-                # Perigos e EPIs podem vir como IDs ou textos
                 perigos = p.get("perigos", [])
                 epis = p.get("epis", [])
 
@@ -215,7 +169,6 @@ def gerar_pdf_apr(documento: Any, caminho_saida: str):
                 if epis:
                     detalhes.append(("EPIs", ", ".join([_to_str(x) for x in _as_list(epis)])))
 
-                # Campos opcionais
                 if p.get("riscos"):
                     detalhes.append(("Riscos", _to_str(p.get("riscos"))))
                 if p.get("medidas_controle"):
@@ -245,14 +198,15 @@ def gerar_pdf_apr(documento: Any, caminho_saida: str):
 
                 elementos.append(Spacer(1, 10))
 
-            # quebra entre atividades (leve)
-            if idx < len(atividades):
-                elementos.append(Spacer(1, 6))
+            if idx < len(docs):
+                elementos.append(Spacer(1, 10))
 
         doc.build(elementos)
         return
 
-    # FALLBACK: NÃO ACHOU ESTRUTURA -> imprime JSON
+    # ============================
+    # FORMATO B: FALLBACK antigo
+    # ============================
     elementos.append(Paragraph("Conteúdo (fallback JSON)", style_h2))
     elementos.append(Spacer(1, 8))
 
