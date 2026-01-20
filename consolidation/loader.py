@@ -1,78 +1,132 @@
 import pandas as pd
-from typing import Dict, List, Any
+import re
+import unicodedata
+from typing import List
 
 
-# ==================================================
-# FUNÇÃO AUXILIAR
-# ==================================================
+def _norm_colname(s: str) -> str:
+    """Normaliza nome de coluna: lowercase, sem acento, sem espaços estranhos."""
+    s = str(s).strip().lower()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))  # remove acentos
+    s = re.sub(r"\s+", "_", s)          # espaços -> _
+    s = re.sub(r"[^a-z0-9_]", "_", s)   # limpa caracteres
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s
 
-def _parse_lista(valor) -> List[str]:
+
+def _split_lista(valor) -> List[str]:
+    """Aceita ';' ou ',' como separador e remove vazios."""
     if pd.isna(valor):
         return []
-    if isinstance(valor, str):
-        return [v.strip() for v in valor.split(",") if v.strip()]
-    return [str(valor).strip()]
+    if not isinstance(valor, str):
+        valor = str(valor)
+    valor = valor.strip()
+    if not valor:
+        return []
+    partes = re.split(r"[;,]", valor)  # separa por ; OU ,
+    return [p.strip() for p in partes if p.strip()]
 
 
-# ==================================================
-# LOADER: EPIs
-# ==================================================
-
-def carregar_epis(caminho_epis: str) -> List[Dict[str, Any]]:
+def carregar_perigos(caminho_arquivo: str):
     """
-    Excel esperado:
-    id | epi | descricao | normas
-    """
-    df = pd.read_excel(caminho_epis)
+    Loader adaptativo de perigos.
 
-    colunas = {"id", "epi", "descricao", "normas"}
-    if not colunas.issubset(df.columns):
+    Normaliza para:
+    - id
+    - perigo
+    - consequencias (list[str])
+    - salvaguardas (list[str])
+    """
+
+    df = pd.read_excel(caminho_arquivo)
+
+    # mapa: coluna_normalizada -> coluna_original
+    colunas = {_norm_colname(c): c for c in df.columns}
+
+    # aliases (o que pode vir no Excel -> campo padrão)
+    aliases = {
+        # id
+        "id": "id",
+        "codigo": "id",
+        "cod": "id",
+
+        # perigo
+        "perigo": "perigo",
+        "title": "perigo",
+        "titulo": "perigo",
+        "descricao": "perigo",
+        "descr": "perigo",
+
+        # consequencias
+        "consequencias": "consequencias",
+        "consequencia": "consequencias",
+        "consequencia_s": "consequencias",
+
+        # salvaguardas
+        "salvaguardas": "salvaguardas",
+        "salvaguarda": "salvaguardas",
+        "salva_guarda": "salvaguardas",
+        "salva_guardas": "salvaguardas",
+        "medidas": "salvaguardas",
+        "controles": "salvaguardas",
+        "medidas_de_controle": "salvaguardas",
+    }
+
+    # encontra a coluna original correspondente a um "campo padrão"
+    def achar_coluna_padrao(nome_padrao: str) -> str | None:
+        for k_norm, col_original in colunas.items():
+            if aliases.get(k_norm) == nome_padrao:
+                return col_original
+        return None
+
+    col_id = achar_coluna_padrao("id")
+    if not col_id:
         raise ValueError(
-            f"Excel de EPIs inválido. Esperado {colunas}. Encontrado {set(df.columns)}"
+            f"Excel de perigos precisa conter a coluna 'id'. Colunas encontradas: {list(df.columns)}"
         )
 
-    epis: List[Dict[str, Any]] = []
+    col_perigo = achar_coluna_padrao("perigo")
+    col_conseq = achar_coluna_padrao("consequencias")
+    col_salva = achar_coluna_padrao("salvaguardas")
+
+    # fallback extra que você já usa:
+    col_normas = colunas.get("normas")
+    col_epi = colunas.get("epi")
+
+    perigos = []
 
     for _, row in df.iterrows():
-        epi_id = int(row["id"])
+        perigo_id = int(row[col_id])
 
-        epis.append({
-            "id": epi_id,
-            "epi": str(row["epi"]).strip(),
-            "descricao": str(row["descricao"]).strip(),
-            "normas": _parse_lista(row["normas"]),
-        })
+        # perigo (obrigatório de fato: se não achar, gera padrão)
+        perigo_val = None
+        if col_perigo and pd.notna(row[col_perigo]):
+            perigo_val = str(row[col_perigo]).strip()
 
-    return epis
+        if not perigo_val:
+            perigo_val = f"Perigo {perigo_id}"
 
+        consequencias = []
+        if col_conseq and pd.notna(row[col_conseq]):
+            consequencias = _split_lista(row[col_conseq])
 
-# ==================================================
-# LOADER: PERIGOS
-# ==================================================
+        salvaguardas = []
+        if col_salva and pd.notna(row[col_salva]):
+            salvaguardas = _split_lista(row[col_salva])
 
-def carregar_perigos(caminho_perigos: str) -> List[Dict[str, Any]]:
-    """
-    Excel esperado:
-    id | perigo | consequencias | salvaguardas
-    """
-    df = pd.read_excel(caminho_perigos)
-
-    colunas = {"id", "perigo", "consequencias", "salvaguardas"}
-    if not colunas.issubset(df.columns):
-        raise ValueError(
-            f"Excel de Perigos inválido. Esperado {colunas}. Encontrado {set(df.columns)}"
-        )
-
-    perigos: List[Dict[str, Any]] = []
-
-    for _, row in df.iterrows():
-        perigo_id = int(row["id"])
+        # fallback: normas / epi como salvaguarda
+        if not salvaguardas:
+            if col_normas and pd.notna(row[col_normas]):
+                salvaguardas = _split_lista(row[col_normas])
+            elif col_epi and pd.notna(row[col_epi]):
+                salvaguardas = _split_lista(row[col_epi])
 
         perigos.append({
             "id": perigo_id,
-            "perigo": str(row["perigo"]).strip(),
-            "consequencias": _parse_lista(row["consequencias"]),
-            "salvaguardas": _parse_lista(row["salvaguardas"]),
+            "perigo": perigo_val,
+            "consequencias": consequencias,
+            "salvaguardas": salvaguardas,
         })
 
     return perigos
