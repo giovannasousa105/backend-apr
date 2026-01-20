@@ -1,11 +1,26 @@
-from pydantic import BaseModel
-from typing import Optional, List
 from datetime import datetime
+from typing import List, Optional
+from pydantic import BaseModel
 
 
-# =========================
-# PASSO
-# =========================
+class APRCreate(BaseModel):
+    titulo: str
+    risco: str
+    descricao: Optional[str] = None
+
+
+class APRResponse(BaseModel):
+    id: int
+    titulo: str
+    risco: str
+    descricao: Optional[str] = None
+    status: str
+    criado_em: datetime
+    atualizado_em: datetime
+
+    class Config:
+        from_attributes = True
+
 
 class PassoCreate(BaseModel):
     ordem: int
@@ -34,36 +49,5 @@ class PassoResponse(BaseModel):
         from_attributes = True
 
 
-# =========================
-# APR
-# =========================
-
-class APRCreate(BaseModel):
-    titulo: str
-    risco: str
-    descricao: Optional[str] = None
-
-
-class APRUpdate(BaseModel):
-    titulo: Optional[str] = None
-    risco: Optional[str] = None
-    descricao: Optional[str] = None
-    status: Optional[str] = None
-
-
-class APRResponse(BaseModel):
-    id: int
-    titulo: str
-    risco: str
-    descricao: Optional[str] = None
-    status: str
-    criado_em: datetime
-    atualizado_em: datetime
+class APRResponseComPassos(APRResponse):
     passos: List[PassoResponse] = []
-
-    class Config:
-        from_attributes = True
-
-
-class APRListResponse(BaseModel):
-    aprs: List[APRResponse]
