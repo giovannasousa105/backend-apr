@@ -1,12 +1,9 @@
-import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from fastapi import HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+@router.get("", response_model=list[schemas.APRResponse])
+def listar_aprs(db: Session = Depends(get_db)):
+    try:
+        return db.query(models.APR).order_by(models.APR.id.desc()).all()
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -1,53 +1,50 @@
 from datetime import datetime
-from typing import List, Optional
-from pydantic import BaseModel
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime
+from sqlalchemy.orm import relationship
+
+from database import Base
 
 
-class APRCreate(BaseModel):
-    titulo: str
-    risco: str
-    descricao: Optional[str] = None
+class APR(Base):
+    __tablename__ = "aprs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    titulo = Column(String(255), nullable=False)
+    risco = Column(String(50), nullable=False)
+    descricao = Column(Text, nullable=True)
+
+    status = Column(String(30), nullable=False, default="rascunho")
+
+    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    atualizado_em = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    passos = relationship(
+        "Passo",
+        back_populates="apr",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="Passo.ordem",
+    )
 
 
-class APRResponse(BaseModel):
-    id: int
-    titulo: str
-    risco: str
-    descricao: Optional[str] = None
-    status: str
-    criado_em: datetime
-    atualizado_em: datetime
+class Passo(Base):
+    __tablename__ = "passos"
 
-    class Config:
-        from_attributes = True
+    id = Column(Integer, primary_key=True, index=True)
 
+    apr_id = Column(Integer, ForeignKey("aprs.id", ondelete="CASCADE"), nullable=False, index=True)
 
-class PassoCreate(BaseModel):
-    ordem: int
-    descricao: str
-    perigos: Optional[List[str]] = []
-    riscos: Optional[str] = ""
-    medidas_controle: Optional[str] = ""
-    epis: Optional[List[str]] = []
-    normas: Optional[str] = ""
+    ordem = Column(Integer, nullable=False)
+    descricao = Column(Text, nullable=False)
 
+    perigos = Column(Text, nullable=False, default="")
+    riscos = Column(Text, nullable=False, default="")
+    medidas_controle = Column(Text, nullable=False, default="")
+    epis = Column(Text, nullable=False, default="")
+    normas = Column(Text, nullable=False, default="")
 
-class PassoResponse(BaseModel):
-    id: int
-    apr_id: int
-    ordem: int
-    descricao: str
-    perigos: str
-    riscos: str
-    medidas_controle: str
-    epis: str
-    normas: str
-    criado_em: datetime
-    atualizado_em: datetime
+    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    atualizado_em = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    class Config:
-        from_attributes = True
-
-
-class APRResponseComPassos(APRResponse):
-    passos: List[PassoResponse] = []
+    apr = relationship("APR", back_populates="passos")

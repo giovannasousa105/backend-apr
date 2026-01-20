@@ -1,46 +1,21 @@
-from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime
-from sqlalchemy.orm import relationship
-from database import Base
+import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
 
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-class APR(Base):
-    __tablename__ = "aprs"
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL não configurada nas variáveis de ambiente.")
 
-    id = Column(Integer, primary_key=True, index=True)
-    titulo = Column(String(255), nullable=False)
-    risco = Column(String(50), nullable=False)
-    descricao = Column(Text, nullable=True)
+# Railway às vezes usa postgres:// (antigo)
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-    status = Column(String(30), nullable=False, default="rascunho")
-    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
-    atualizado_em = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+)
 
-    passos = relationship(
-        "Passo",
-        back_populates="apr",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-        order_by="Passo.ordem",
-    )
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-
-class Passo(Base):
-    __tablename__ = "passos"
-
-    id = Column(Integer, primary_key=True, index=True)
-    apr_id = Column(Integer, ForeignKey("aprs.id", ondelete="CASCADE"), nullable=False, index=True)
-
-    ordem = Column(Integer, nullable=False)
-    descricao = Column(Text, nullable=False)
-
-    perigos = Column(Text, nullable=False, default="")
-    riscos = Column(Text, nullable=False, default="")
-    medidas_controle = Column(Text, nullable=False, default="")
-    epis = Column(Text, nullable=False, default="")
-    normas = Column(Text, nullable=False, default="")
-
-    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
-    atualizado_em = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    apr = relationship("APR", back_populates="passos")
+Base = declarative_base()
