@@ -1,11 +1,16 @@
+from __future__ import annotations
+
+from typing import Any, Dict, List
 import pandas as pd
 import re
 import unicodedata
-from typing import List
 
+
+# ==================================================
+# NORMALIZAÇÃO
+# ==================================================
 
 def _norm_colname(s: str) -> str:
-    """Normaliza nome de coluna: lowercase, sem acento, sem espaços estranhos."""
     s = str(s).strip().lower()
     s = unicodedata.normalize("NFKD", s)
     s = "".join(ch for ch in s if not unicodedata.combining(ch))  # remove acentos
@@ -16,35 +21,70 @@ def _norm_colname(s: str) -> str:
 
 
 def _split_lista(valor) -> List[str]:
-    """Aceita ';' ou ',' como separador e remove vazios."""
     if pd.isna(valor):
         return []
     if not isinstance(valor, str):
         valor = str(valor)
-    valor = valor.strip()
-    if not valor:
-        return []
-    partes = re.split(r"[;,]", valor)  # separa por ; OU ,
+    partes = re.split(r"[;,]", valor)
     return [p.strip() for p in partes if p.strip()]
 
 
-def carregar_perigos(caminho_arquivo: str):
+# ==================================================
+# LOADER: EPIs
+# ==================================================
+
+def carregar_epis(caminho_arquivo: str) -> List[Dict[str, Any]]:
+    """
+    Loader adaptativo de EPIs.
+    Normaliza para:
+    { id: int, nome: str, tipo: str|None }
+    """
+    df = pd.read_excel(caminho_arquivo)
+    colunas = {_norm_colname(c): c for c in df.columns}
+
+    if "id" not in colunas:
+        raise ValueError("Excel de EPIs precisa conter a coluna 'id'")
+
+    epis: List[Dict[str, Any]] = []
+
+    for _, row in df.iterrows():
+        epi_id = int(row[colunas["id"]])
+
+        nome = None
+        for campo in ["epi", "nome", "descricao"]:
+            if campo in colunas and pd.notna(row[colunas[campo]]):
+                nome = str(row[colunas[campo]]).strip()
+                break
+
+        tipo = None
+        if "tipo" in colunas and pd.notna(row[colunas["tipo"]]):
+            tipo = str(row[colunas["tipo"]]).strip()
+
+        epis.append({
+            "id": epi_id,
+            "nome": nome or f"EPI {epi_id}",
+            "tipo": tipo,
+        })
+
+    return epis
+
+
+# ==================================================
+# LOADER: PERIGOS
+# ==================================================
+
+def carregar_perigos(caminho_arquivo: str) -> List[Dict[str, Any]]:
     """
     Loader adaptativo de perigos.
-
     Normaliza para:
     - id
     - perigo
     - consequencias (list[str])
     - salvaguardas (list[str])
     """
-
     df = pd.read_excel(caminho_arquivo)
-
-    # mapa: coluna_normalizada -> coluna_original
     colunas = {_norm_colname(c): c for c in df.columns}
 
-    # aliases (o que pode vir no Excel -> campo padrão)
     aliases = {
         # id
         "id": "id",
@@ -61,7 +101,6 @@ def carregar_perigos(caminho_arquivo: str):
         # consequencias
         "consequencias": "consequencias",
         "consequencia": "consequencias",
-        "consequencia_s": "consequencias",
 
         # salvaguardas
         "salvaguardas": "salvaguardas",
@@ -73,49 +112,38 @@ def carregar_perigos(caminho_arquivo: str):
         "medidas_de_controle": "salvaguardas",
     }
 
-    # encontra a coluna original correspondente a um "campo padrão"
-    def achar_coluna_padrao(nome_padrao: str) -> str | None:
-        for k_norm, col_original in colunas.items():
-            if aliases.get(k_norm) == nome_padrao:
-                return col_original
+    def achar_coluna(padrao: str) -> str | None:
+        for norm, original in colunas.items():
+            if aliases.get(norm) == padrao:
+                return original
         return None
 
-    col_id = achar_coluna_padrao("id")
+    col_id = achar_coluna("id")
     if not col_id:
-        raise ValueError(
-            f"Excel de perigos precisa conter a coluna 'id'. Colunas encontradas: {list(df.columns)}"
-        )
+        raise ValueError("Excel de perigos precisa conter a coluna 'id'")
 
-    col_perigo = achar_coluna_padrao("perigo")
-    col_conseq = achar_coluna_padrao("consequencias")
-    col_salva = achar_coluna_padrao("salvaguardas")
+    col_perigo = achar_coluna("perigo")
+    col_conseq = achar_coluna("consequencias")
+    col_salva = achar_coluna("salvaguardas")
 
-    # fallback extra que você já usa:
+    # fallbacks extras
     col_normas = colunas.get("normas")
     col_epi = colunas.get("epi")
 
-    perigos = []
+    perigos: List[Dict[str, Any]] = []
 
     for _, row in df.iterrows():
         perigo_id = int(row[col_id])
 
-        # perigo (obrigatório de fato: se não achar, gera padrão)
         perigo_val = None
         if col_perigo and pd.notna(row[col_perigo]):
             perigo_val = str(row[col_perigo]).strip()
-
         if not perigo_val:
             perigo_val = f"Perigo {perigo_id}"
 
-        consequencias = []
-        if col_conseq and pd.notna(row[col_conseq]):
-            consequencias = _split_lista(row[col_conseq])
+        consequencias = _split_lista(row[col_conseq]) if (col_conseq and pd.notna(row[col_conseq])) else []
+        salvaguardas = _split_lista(row[col_salva]) if (col_salva and pd.notna(row[col_salva])) else []
 
-        salvaguardas = []
-        if col_salva and pd.notna(row[col_salva]):
-            salvaguardas = _split_lista(row[col_salva])
-
-        # fallback: normas / epi como salvaguarda
         if not salvaguardas:
             if col_normas and pd.notna(row[col_normas]):
                 salvaguardas = _split_lista(row[col_normas])
