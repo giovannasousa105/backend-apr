@@ -2,21 +2,46 @@ from typing import Dict, List, Any
 from datetime import datetime
 
 
+def _garantir_dict(atividades: Any) -> Dict[Any, Dict[str, Any]]:
+    """
+    Garante que atividades SEMPRE seja dict.
+    - dict -> retorna
+    - list -> converte para {"1": item1, "2": item2, ...}
+    - None/outros -> {}
+    """
+    if atividades is None:
+        return {}
+
+    if isinstance(atividades, dict):
+        return atividades
+
+    if isinstance(atividades, list):
+        out: Dict[Any, Dict[str, Any]] = {}
+        for i, item in enumerate(atividades, start=1):
+            if isinstance(item, dict):
+                out[str(i)] = item
+            else:
+                out[str(i)] = {"atividade": str(item), "passos": []}
+        return out
+
+    return {}
+
+
 def construir_documento(
-    atividades: Dict[Any, Dict[str, Any]],
+    atividades: Any,  # <- aceita dict OU list
     epis: List[Dict[str, Any]],
     perigos: List[Dict[str, Any]],
     hashes: dict,
 ) -> dict:
     """
     Builder de domínio (APR).
-    Produz estrutura rica, mas SEM ambiguidade de tipo.
+    Produz estrutura rica, sem ambiguidade de tipo.
     """
 
     documentos = []
 
-    if not isinstance(atividades, dict):
-        atividades = {}
+    # ✅ não perde as atividades se vierem como list
+    atividades = _garantir_dict(atividades)
 
     if not isinstance(hashes, dict):
         hashes = {}
@@ -35,12 +60,27 @@ def construir_documento(
     }
 
     for atividade in atividades.values():
+        if not isinstance(atividade, dict):
+            continue
+
+        passos_raw = atividade.get("passos", [])
+        if not isinstance(passos_raw, list):
+            passos_raw = []
 
         passos_finais = []
 
-        for passo in atividade.get("passos", []):
+        for passo in passos_raw:
             if not isinstance(passo, dict):
                 continue
+
+            # garante listas
+            epis_refs = passo.get("epis", [])
+            perigos_refs = passo.get("perigos", [])
+
+            if not isinstance(epis_refs, list):
+                epis_refs = []
+            if not isinstance(perigos_refs, list):
+                perigos_refs = []
 
             passos_finais.append({
                 "ordem": passo.get("ordem"),
@@ -49,16 +89,21 @@ def construir_documento(
                 "medidas_controle": passo.get("medidas_controle", []),
                 "normas": passo.get("normas", []),
 
-                # 👇 AQUI É O PONTO CRÍTICO: SEMPRE LISTA DE STRINGS
+                # ✅ sempre lista de strings (nome do EPI ou fallback)
                 "epis": [
                     str(epis_index.get(int(eid), {}).get("nome", eid))
-                    for eid in passo.get("epis", [])
+                    for eid in epis_refs
                     if str(eid).isdigit()
                 ],
 
+                # ✅ seu loader de perigos cria "perigo" (não "descricao")
                 "perigos": [
-                    str(perigos_index.get(int(pid), {}).get("descricao", pid))
-                    for pid in passo.get("perigos", [])
+                    str(
+                        perigos_index.get(int(pid), {}).get("perigo")
+                        or perigos_index.get(int(pid), {}).get("descricao")
+                        or pid
+                    )
+                    for pid in perigos_refs
                     if str(pid).isdigit()
                 ],
             })
@@ -89,8 +134,19 @@ def construir_documento(
 def _extrair_normas_base(atividade: Dict[str, Any]) -> List[str]:
     normas = set()
 
-    for passo in atividade.get("passos", []):
-        for norma in passo.get("normas", []):
+    passos = atividade.get("passos", [])
+    if not isinstance(passos, list):
+        return []
+
+    for passo in passos:
+        if not isinstance(passo, dict):
+            continue
+
+        normas_raw = passo.get("normas", [])
+        if not isinstance(normas_raw, list):
+            continue
+
+        for norma in normas_raw:
             if isinstance(norma, str):
                 normas.add(norma)
 
