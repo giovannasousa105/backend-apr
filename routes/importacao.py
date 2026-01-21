@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
 import os
 import tempfile
-
+import shutil
 from database import SessionLocal
 from importar_excel import importar_epis, importar_perigos
 
@@ -24,43 +24,21 @@ def get_db():
 # IMPORTAR EPIs
 # -------------------------
 @router.post("/epis")
-async def importar_epis_route(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-):
-    if not file.filename.endswith(".xlsx"):
-        raise HTTPException(status_code=400, detail="Envie um arquivo .xlsx")
+def importar_epis_endpoint(file: UploadFile = File(...), db=Depends(get_db)):
+    os.makedirs("uploads", exist_ok=True)
+    path = os.path.join("uploads", file.filename)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        caminho = os.path.join(tmp, file.filename)
-        with open(caminho, "wb") as f:
-            f.write(await file.read())
+    with open(path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
 
-        resultado = importar_epis(db, caminho)
-        return {
-            "status": "ok",
-            "resultado": resultado
-        }
+    return importar_epis(db, path)
 
-
-# -------------------------
-# IMPORTAR PERIGOS
-# -------------------------
 @router.post("/perigos")
-async def importar_perigos_route(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-):
-    if not file.filename.endswith(".xlsx"):
-        raise HTTPException(status_code=400, detail="Envie um arquivo .xlsx")
+def importar_perigos_endpoint(file: UploadFile = File(...), db=Depends(get_db)):
+    os.makedirs("uploads", exist_ok=True)
+    path = os.path.join("uploads", file.filename)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        caminho = os.path.join(tmp, file.filename)
-        with open(caminho, "wb") as f:
-            f.write(await file.read())
+    with open(path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
 
-        resultado = importar_perigos(db, caminho)
-        return {
-            "status": "ok",
-            "resultado": resultado
-        }
+    return importar_perigos(db, path)
