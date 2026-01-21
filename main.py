@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from database import Base, engine
 import models  # registra tabelas
-from routes.apr import router as apr_router
+from routes.importacao import router as import_router
+
 
 app = FastAPI(title="APR API")
 

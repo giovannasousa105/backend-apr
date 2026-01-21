@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError
 
 import models
-import schemas
+from schemas import APRResponse
 from database import SessionLocal
 
 router = APIRouter(prefix="/aprs", tags=["APR"])
@@ -17,7 +17,7 @@ def get_db():
         db.close()
 
 
-@router.post("", response_model=schemas.APRResponse)
+@router.post("", response_model=APRResponse)
 def criar_apr(payload: schemas.APRCreate, db: Session = Depends(get_db)):
     try:
         apr = models.APR(
