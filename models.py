@@ -1,21 +1,21 @@
-import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import Column, Integer, String, Text, UniqueConstraint
+from database import Base
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+class EPI(Base):
+    __tablename__ = "epis"
+    id = Column(Integer, primary_key=True)
+    epi = Column(String(255), nullable=False)            # vem da coluna "epi"
+    descricao = Column(Text, nullable=True)              # vem da coluna "descricao"
+    normas = Column(Text, nullable=True)                 # vem da coluna "normas"
 
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL não configurada nas variáveis de ambiente.")
+    __table_args__ = (UniqueConstraint("epi", name="uq_epis_epi"),)
 
-# Railway às vezes usa postgres:// (antigo)
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-)
+class Perigo(Base):
+    __tablename__ = "perigos"
+    id = Column(Integer, primary_key=True)
+    perigo = Column(String(255), nullable=False)         # vem da coluna "perigo"
+    consequencias = Column(Text, nullable=True)          # vem da coluna "consequencias"
+    salvaguardas = Column(Text, nullable=True)           # vem da coluna "salvaguardas"
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base = declarative_base()
+    __table_args__ = (UniqueConstraint("perigo", name="uq_perigos_perigo"),)

@@ -1,50 +1,53 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime
-from sqlalchemy.orm import relationship
-
-from database import Base
+from typing import List, Optional
+from pydantic import BaseModel
 
 
-class APR(Base):
-    __tablename__ = "aprs"
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    titulo = Column(String(255), nullable=False)
-    risco = Column(String(50), nullable=False)
-    descricao = Column(Text, nullable=True)
-
-    status = Column(String(30), nullable=False, default="rascunho")
-
-    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
-    atualizado_em = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    passos = relationship(
-        "Passo",
-        back_populates="apr",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-        order_by="Passo.ordem",
-    )
+# -------------------------
+# PASSO
+# -------------------------
+class PassoBase(BaseModel):
+    ordem: int
+    descricao: str
+    perigos: str
+    riscos: str
+    medidas_controle: str
+    epis: str
+    normas: str
 
 
-class Passo(Base):
-    __tablename__ = "passos"
+class PassoCreate(PassoBase):
+    pass
 
-    id = Column(Integer, primary_key=True, index=True)
 
-    apr_id = Column(Integer, ForeignKey("aprs.id", ondelete="CASCADE"), nullable=False, index=True)
+class PassoResponse(PassoBase):
+    id: int
+    criado_em: datetime
+    atualizado_em: datetime
 
-    ordem = Column(Integer, nullable=False)
-    descricao = Column(Text, nullable=False)
+    class Config:
+        from_attributes = True
 
-    perigos = Column(Text, nullable=False, default="")
-    riscos = Column(Text, nullable=False, default="")
-    medidas_controle = Column(Text, nullable=False, default="")
-    epis = Column(Text, nullable=False, default="")
-    normas = Column(Text, nullable=False, default="")
 
-    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
-    atualizado_em = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+# -------------------------
+# APR
+# -------------------------
+class APRBase(BaseModel):
+    titulo: str
+    risco: str
+    descricao: Optional[str] = None
+    status: str
 
-    apr = relationship("APR", back_populates="passos")
+
+class APRCreate(APRBase):
+    passos: List[PassoCreate] = []
+
+
+class APRResponse(APRBase):
+    id: int
+    criado_em: datetime
+    atualizado_em: datetime
+    passos: List[PassoResponse] = []
+
+    class Config:
+        from_attributes = True
