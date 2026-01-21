@@ -1,9 +1,12 @@
-from fastapi import HTTPException
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-@router.get("", response_model=list[schemas.APRResponse])
-def listar_aprs(db: Session = Depends(get_db)):
-    try:
-        return db.query(models.APR).order_by(models.APR.id.desc()).all()
-    except SQLAlchemyError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+DATABASE_URL = "sqlite:///./app.db"  # ou seu Postgres no Railway
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
