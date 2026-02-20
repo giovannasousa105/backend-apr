@@ -1,8 +1,9 @@
 ﻿import pandas as pd
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-
 from models import EPI, Perigo
+from excel_contract import SCHEMA_VERSION, validate_epis_df, validate_perigos_df
+from text_normalizer import normalize_text
 
 
 def _norm_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -11,65 +12,61 @@ def _norm_cols(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _pick_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
-    for c in candidates:
-        if c in df.columns:
-            return c
-    return None
-
-
 def importar_epis(db: Session, caminho_excel: str) -> dict:
     df = pd.read_excel(caminho_excel)
+    validate_epis_df(df)
     df = _norm_cols(df)
 
-    # ASCII-only candidates (no accents)
-    col = _pick_col(df, ["epi", "epis", "nome", "equipamento", "equipamento de protecao"])
-    if col is None:
-        col = df.columns[0] if len(df.columns) else None
-
-    if col is None:
-        return {"epis_inseridos": 0, "erro": "Nenhuma coluna encontrada no Excel"}
-
     criados = 0
-    for val in df[col].dropna().astype(str):
-        nome = val.strip()
-        if not nome:
+
+    for _, row in df.iterrows():
+        epi = str(row.get("epi")).strip() if row.get("epi") is not None else ""
+        descricao = row.get("descricao")
+        normas = row.get("normas")
+
+        epi = normalize_text(epi, origin="excel", field="epi") or ""
+        descricao = normalize_text(descricao, origin="excel", field="descricao")
+        normas = normalize_text(normas, origin="excel", field="normas")
+
+        if not epi:
             continue
 
-        existe = db.execute(select(EPI).where(EPI.nome == nome)).scalar_one_or_none()
+        existe = db.execute(select(EPI).where(EPI.epi == epi)).scalar_one_or_none()
         if existe:
             continue
 
-        db.add(EPI(nome=nome))
+        db.add(EPI(epi=epi, descricao=descricao, normas=normas))
         criados += 1
 
     db.commit()
-    return {"epis_inseridos": criados}
+    return {"schema_version": SCHEMA_VERSION, "epis_inseridos": criados}
 
 
 def importar_perigos(db: Session, caminho_excel: str) -> dict:
     df = pd.read_excel(caminho_excel)
+    validate_perigos_df(df)
     df = _norm_cols(df)
 
-    col = _pick_col(df, ["perigo", "perigos", "hazard", "nome"])
-    if col is None:
-        col = df.columns[0] if len(df.columns) else None
-
-    if col is None:
-        return {"perigos_inseridos": 0, "erro": "Nenhuma coluna encontrada no Excel"}
-
     criados = 0
-    for val in df[col].dropna().astype(str):
-        nome = val.strip()
-        if not nome:
+
+    for _, row in df.iterrows():
+        perigo = str(row.get("perigo")).strip() if row.get("perigo") is not None else ""
+        consequencias = row.get("consequencias")
+        salvaguardas = row.get("salvaguardas")
+
+        perigo = normalize_text(perigo, origin="excel", field="perigo") or ""
+        consequencias = normalize_text(consequencias, origin="excel", field="consequencias")
+        salvaguardas = normalize_text(salvaguardas, origin="excel", field="salvaguardas")
+
+        if not perigo:
             continue
 
-        existe = db.execute(select(Perigo).where(Perigo.nome == nome)).scalar_one_or_none()
+        existe = db.execute(select(Perigo).where(Perigo.perigo == perigo)).scalar_one_or_none()
         if existe:
             continue
 
-        db.add(Perigo(nome=nome))
+        db.add(Perigo(perigo=perigo, consequencias=consequencias, salvaguardas=salvaguardas))
         criados += 1
 
     db.commit()
-    return {"perigos_inseridos": criados}
+    return {"schema_version": SCHEMA_VERSION, "perigos_inseridos": criados}

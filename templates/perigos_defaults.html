@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Editor de Perigos - Defaults de Risco</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Spectral:wght@400;600&display=swap");
+
+      :root {
+        --bg-cream: #f6f1e7;
+        --bg-mist: #e6eef1;
+        --ink: #1d1a16;
+        --muted: #6f675d;
+        --accent: #ef6f3e;
+        --accent-2: #1f7b79;
+        --card: rgba(255, 255, 255, 0.78);
+        --line: rgba(29, 26, 22, 0.12);
+        --shadow: 0 24px 60px rgba(29, 26, 22, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(1200px 500px at 15% -10%, rgba(239, 111, 62, 0.16), transparent 60%),
+          radial-gradient(900px 600px at 90% 0%, rgba(31, 123, 121, 0.18), transparent 55%),
+          linear-gradient(135deg, var(--bg-cream), var(--bg-mist));
+        min-height: 100vh;
+      }
+
+      .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 40px 24px 60px;
+        position: relative;
+      }
+
+      .header {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 24px;
+        align-items: end;
+        margin-bottom: 28px;
+      }
+
+      h1 {
+        font-family: "Spectral", "Georgia", serif;
+        font-size: clamp(26px, 4vw, 40px);
+        margin: 0 0 8px;
+        letter-spacing: -0.02em;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.5;
+        max-width: 520px;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 22px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(10px);
+      }
+
+      .controls {
+        display: grid;
+        gap: 14px;
+      }
+
+      label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      input[type="text"],
+      input[type="password"],
+      input[type="number"] {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.9);
+        font-size: 14px;
+        font-family: inherit;
+      }
+
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .row input[type="text"] {
+        flex: 1;
+      }
+
+      .btn {
+        border: none;
+        border-radius: 999px;
+        padding: 10px 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+        font-family: inherit;
+      }
+
+      .btn.primary {
+        background: var(--accent);
+        color: #fff;
+        box-shadow: 0 10px 25px rgba(239, 111, 62, 0.3);
+      }
+
+      .btn.secondary {
+        background: rgba(31, 123, 121, 0.12);
+        color: var(--accent-2);
+      }
+
+      .btn.ghost {
+        background: transparent;
+        color: var(--muted);
+        border: 1px dashed var(--line);
+      }
+
+      .btn:active {
+        transform: scale(0.98);
+      }
+
+      .status {
+        font-size: 13px;
+        color: var(--muted);
+        min-height: 18px;
+      }
+
+      .table-card {
+        padding: 0;
+        overflow: hidden;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+
+      thead {
+        background: rgba(29, 26, 22, 0.05);
+      }
+
+      th, td {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: middle;
+      }
+
+      th {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      tbody tr.dirty {
+        background: rgba(239, 111, 62, 0.08);
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(31, 123, 121, 0.12);
+        color: var(--accent-2);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 20px;
+        background: rgba(29, 26, 22, 0.04);
+        border-top: 1px solid var(--line);
+      }
+
+      .actions .left,
+      .actions .right {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .footer-note {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 16px;
+      }
+
+      .badge {
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 8px;
+        background: rgba(29, 26, 22, 0.08);
+      }
+
+      @media (max-width: 900px) {
+        .header {
+          grid-template-columns: 1fr;
+        }
+
+        .actions {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        th:nth-child(1),
+        td:nth-child(1) {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="header">
+        <div>
+          <h1>Editor de perigos</h1>
+          <div class="subtitle">
+            Ajuste <strong>default_probability</strong> e <strong>default_severity</strong> por perigo.
+            Use 0 para herdar o padrao global. Valores validos aparecem ao lado.
+          </div>
+        </div>
+        <div class="card controls">
+          <div>
+            <label for="token">Token (Bearer)</label>
+            <input id="token" type="password" placeholder="cole o token aqui" />
+          </div>
+          <div>
+            <label for="search">Buscar perigo</label>
+            <div class="row">
+              <input id="search" type="text" placeholder="ex: queda, eletrico, ruido" />
+              <button class="btn secondary" id="searchBtn" type="button">Buscar</button>
+            </div>
+          </div>
+          <div class="row">
+            <button class="btn primary" id="reloadBtn" type="button">Atualizar lista</button>
+            <button class="btn ghost" id="saveAllBtn" type="button">Salvar alteracoes</button>
+          </div>
+          <div class="status" id="status">Informe o token para carregar.</div>
+        </div>
+      </div>
+
+      <div class="card table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Perigo</th>
+              <th>Default probability</th>
+              <th>Default severity</th>
+              <th>Acoes</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+        <div class="actions">
+          <div class="left">
+            <span class="pill" id="countPill">0 itens</span>
+            <span class="badge" id="boundsBadge">prob 1-5 | sev 1-5</span>
+          </div>
+          <div class="right">
+            <button class="btn secondary" id="loadMoreBtn" type="button">Carregar mais</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-note">
+        Dica: depois de salvar, gere a APR novamente para recalcular os riscos com os novos defaults.
+      </div>
+    </div>
+
+    <script>
+      const state = {
+        token: "",
+        search: "",
+        skip: 0,
+        limit: 50,
+        total: 0,
+        items: [],
+        bounds: { probMin: 1, probMax: 5, sevMin: 1, sevMax: 5 },
+      };
+
+      const els = {
+        token: document.getElementById("token"),
+        search: document.getElementById("search"),
+        status: document.getElementById("status"),
+        tableBody: document.getElementById("tableBody"),
+        loadMoreBtn: document.getElementById("loadMoreBtn"),
+        searchBtn: document.getElementById("searchBtn"),
+        reloadBtn: document.getElementById("reloadBtn"),
+        saveAllBtn: document.getElementById("saveAllBtn"),
+        countPill: document.getElementById("countPill"),
+        boundsBadge: document.getElementById("boundsBadge"),
+      };
+
+      function setStatus(message, tone = "muted") {
+        els.status.textContent = message;
+        els.status.style.color = tone === "error" ? "#a02a2a" : "";
+      }
+
+      function authHeaders() {
+        if (!state.token) {
+          return {};
+        }
+        return { Authorization: "Bearer " + state.token };
+      }
+
+      async function loadRiskMatrix() {
+        if (!state.token) {
+          return;
+        }
+        try {
+          const res = await fetch("/v1/contract", { headers: authHeaders() });
+          if (!res.ok) {
+            return;
+          }
+          const data = await res.json();
+          const matrix = (data.rules || {}).risk_matrix || {};
+          const prob = matrix.probability || {};
+          const sev = matrix.severity || {};
+          state.bounds.probMin = Number(prob.min || 1);
+          state.bounds.probMax = Number(prob.max || 5);
+          state.bounds.sevMin = Number(sev.min || 1);
+          state.bounds.sevMax = Number(sev.max || 5);
+          els.boundsBadge.textContent =
+            "prob " +
+            state.bounds.probMin +
+            "-" +
+            state.bounds.probMax +
+            " | sev " +
+            state.bounds.sevMin +
+            "-" +
+            state.bounds.sevMax;
+        } catch (err) {
+          console.error(err);
+        }
+      }
+
+      function updateCounts() {
+        els.countPill.textContent = state.items.length + " de " + state.total + " itens";
+        els.loadMoreBtn.disabled = state.items.length >= state.total;
+      }
+
+      function parseNumber(value) {
+        const num = Number(value);
+        if (Number.isNaN(num)) {
+          return 0;
+        }
+        return Math.trunc(num);
+      }
+
+      function markDirty(row) {
+        const probInput = row.querySelector("input[data-field='default_probability']");
+        const sevInput = row.querySelector("input[data-field='default_severity']");
+        const prob = parseNumber(probInput.value);
+        const sev = parseNumber(sevInput.value);
+        const originalProb = parseNumber(row.dataset.originalProb);
+        const originalSev = parseNumber(row.dataset.originalSev);
+        const dirty = prob !== originalProb || sev !== originalSev;
+        row.classList.toggle("dirty", dirty);
+        row.dataset.dirty = dirty ? "1" : "0";
+      }
+
+      async function saveRow(row) {
+        const id = row.dataset.id;
+        const probInput = row.querySelector("input[data-field='default_probability']");
+        const sevInput = row.querySelector("input[data-field='default_severity']");
+        const prob = parseNumber(probInput.value);
+        const sev = parseNumber(sevInput.value);
+        const originalProb = parseNumber(row.dataset.originalProb);
+        const originalSev = parseNumber(row.dataset.originalSev);
+
+        const payload = {};
+        if (prob !== originalProb) {
+          payload.default_probability = prob;
+        }
+        if (sev !== originalSev) {
+          payload.default_severity = sev;
+        }
+        if (!Object.keys(payload).length) {
+          return;
+        }
+
+        try {
+          const res = await fetch("/v1/perigos/" + id, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const msg = await res.text();
+            setStatus("Falha ao salvar perigo " + id + ": " + msg, "error");
+            return;
+          }
+          const data = await res.json();
+          row.dataset.originalProb = data.default_probability;
+          row.dataset.originalSev = data.default_severity;
+          probInput.value = data.default_probability;
+          sevInput.value = data.default_severity;
+          markDirty(row);
+          setStatus("Perigo " + id + " salvo.");
+        } catch (err) {
+          console.error(err);
+          setStatus("Erro ao salvar perigo " + id, "error");
+        }
+      }
+
+      async function saveAllDirty() {
+        const rows = Array.from(els.tableBody.querySelectorAll("tr[data-dirty='1']"));
+        if (!rows.length) {
+          setStatus("Nenhuma alteracao pendente.");
+          return;
+        }
+        setStatus("Salvando " + rows.length + " itens...");
+        for (const row of rows) {
+          await saveRow(row);
+        }
+        setStatus("Alteracoes salvas.");
+      }
+
+      function renderRows(items, append) {
+        if (!append) {
+          els.tableBody.innerHTML = "";
+        }
+        for (const item of items) {
+          const row = document.createElement("tr");
+          row.dataset.id = item.id;
+          row.dataset.originalProb = item.default_probability;
+          row.dataset.originalSev = item.default_severity;
+          row.dataset.dirty = "0";
+
+          row.innerHTML = `
+            <td>${item.id}</td>
+            <td>${item.perigo || ""}</td>
+            <td>
+              <input
+                type="number"
+                data-field="default_probability"
+                min="0"
+                max="${state.bounds.probMax}"
+                step="1"
+                value="${item.default_probability}"
+              />
+            </td>
+            <td>
+              <input
+                type="number"
+                data-field="default_severity"
+                min="0"
+                max="${state.bounds.sevMax}"
+                step="1"
+                value="${item.default_severity}"
+              />
+            </td>
+            <td>
+              <button class="btn secondary" type="button" data-action="save">Salvar</button>
+            </td>
+          `;
+
+          row.querySelectorAll("input").forEach((input) => {
+            input.addEventListener("input", () => markDirty(row));
+          });
+          row.querySelector("button[data-action='save']").addEventListener("click", () => saveRow(row));
+          els.tableBody.appendChild(row);
+        }
+      }
+
+      async function loadPerigos(reset = false) {
+        if (!state.token) {
+          setStatus("Informe o token para carregar.");
+          return;
+        }
+        if (reset) {
+          state.skip = 0;
+          state.items = [];
+        }
+        setStatus("Carregando perigos...");
+        try {
+          const url =
+            "/v1/perigos?skip=" +
+            state.skip +
+            "&limit=" +
+            state.limit +
+            (state.search ? "&search=" + encodeURIComponent(state.search) : "");
+          const res = await fetch(url, { headers: authHeaders() });
+          if (!res.ok) {
+            const msg = await res.text();
+            setStatus("Erro ao carregar: " + msg, "error");
+            return;
+          }
+          const data = await res.json();
+          state.total = data.total || 0;
+          const items = data.items || [];
+          if (reset) {
+            state.items = items;
+            renderRows(items, false);
+          } else {
+            state.items = state.items.concat(items);
+            renderRows(items, true);
+          }
+          state.skip = state.items.length;
+          updateCounts();
+          setStatus("Lista atualizada.");
+        } catch (err) {
+          console.error(err);
+          setStatus("Falha ao carregar perigos.", "error");
+        }
+      }
+
+      function initFromStorage() {
+        const stored = localStorage.getItem("apr_token");
+        if (stored) {
+          state.token = stored;
+          els.token.value = stored;
+        }
+      }
+
+      els.token.addEventListener("input", async () => {
+        state.token = els.token.value.trim();
+        localStorage.setItem("apr_token", state.token);
+        await loadRiskMatrix();
+      });
+
+      els.searchBtn.addEventListener("click", () => {
+        state.search = els.search.value.trim();
+        loadPerigos(true);
+      });
+
+      els.reloadBtn.addEventListener("click", async () => {
+        await loadRiskMatrix();
+        await loadPerigos(true);
+      });
+
+      els.loadMoreBtn.addEventListener("click", () => loadPerigos(false));
+      els.saveAllBtn.addEventListener("click", saveAllDirty);
+
+      initFromStorage();
+      loadRiskMatrix().then(() => loadPerigos(true));
+    </script>
+  </body>
+</html>

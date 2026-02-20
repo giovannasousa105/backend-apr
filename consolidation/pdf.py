@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any, Dict, List, Union
 import json
 import html
+import logging
+import os
 
 from reportlab.platypus import (
     SimpleDocTemplate,
@@ -10,13 +12,16 @@ from reportlab.platypus import (
     Spacer,
     Table,
     TableStyle,
+    Image as RLImage,
 )
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
 
 
 JsonLike = Union[Dict[str, Any], List[Any]]
+logger = logging.getLogger(__name__)
 
 
 def _to_str(v: Any) -> str:
@@ -42,6 +47,23 @@ def _as_list(v: Any) -> List[Any]:
 
 def _safe_para(text: Any, style: ParagraphStyle) -> Paragraph:
     return Paragraph(html.escape(_to_str(text)).replace("\n", "<br/>"), style)
+
+
+def _build_evidence_image(path: str | None, max_width: float = 320, max_height: float = 240):
+    if not path:
+        return None
+    if not os.path.exists(path):
+        return None
+    try:
+        img = ImageReader(path)
+        iw, ih = img.getSize()
+        if iw <= 0 or ih <= 0:
+            return None
+        scale = min(max_width / iw, max_height / ih, 1.0)
+        return RLImage(path, width=iw * scale, height=ih * scale)
+    except Exception:
+        logger.warning("Falha ao carregar evidencia: %s", path)
+        return None
 
 
 def _make_kv_table(data: Dict[str, Any]) -> Table:
@@ -132,9 +154,16 @@ def gerar_pdf_apr(documento: Any, caminho_saida: str):
 
             # dados da APR (apr dict)
             dados_apr = {}
-            for k in ["local", "funcao"]:
-                if apr.get(k) is not None:
-                    dados_apr[k] = apr.get(k)
+            campos = [
+                ("obra", "Obra"),
+                ("local", "Local"),
+                ("funcao", "Funcao"),
+                ("responsavel", "Responsavel"),
+                ("data", "Data"),
+            ]
+            for key, label in campos:
+                if apr.get(key) is not None:
+                    dados_apr[label] = apr.get(key)
 
             normas_base = apr.get("normas_base")
             if normas_base:
@@ -142,6 +171,77 @@ def gerar_pdf_apr(documento: Any, caminho_saida: str):
 
             if dados_apr:
                 elementos.append(_make_kv_table(dados_apr))
+                elementos.append(Spacer(1, 8))
+
+            energies = apr.get("dangerous_energies_checklist")
+            if isinstance(energies, list) and energies:
+                elementos.append(Paragraph("Energias perigosas", style_h3))
+                rows = [["Energia", "Marcado"]]
+                for item in energies:
+                    if not isinstance(item, dict):
+                        continue
+                    label = item.get("energia") or ""
+                    marcado = "Sim" if item.get("marcado") else "Nao"
+                    rows.append([_to_str(label), marcado])
+                if len(rows) > 1:
+                    tbl = Table(rows, colWidths=[260, 260])
+                    tbl.setStyle(
+                        TableStyle(
+                            [
+                                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                                ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+                            ]
+                        )
+                    )
+                    elementos.append(tbl)
+                    elementos.append(Spacer(1, 8))
+
+            risk_matrix = apr.get("risk_matrix")
+            if isinstance(risk_matrix, list) and risk_matrix:
+                elementos.append(Paragraph("Matriz de risco", style_h3))
+                rows = [["Passo", "Risco", "Probabilidade", "Severidade", "Score", "Nível"]]
+                sorted_matrix = sorted(
+                    risk_matrix,
+                    key=lambda item: (
+                        (item.get("step_order") or 0),
+                        _to_str(item.get("risk_description")),
+                    ),
+                )
+                for item in sorted_matrix:
+                    rows.append(
+                        [
+                            f"Passo {item.get('step_order') or '?'}",
+                            _to_str(item.get("risk_description") or item.get("hazard")),
+                            _to_str(item.get("probability")),
+                            _to_str(item.get("severity")),
+                            _to_str(item.get("score")),
+                            _to_str(item.get("risk_level")),
+                        ]
+                    )
+                tbl = Table(rows, colWidths=[60, 200, 70, 70, 60, 60])
+                tbl.setStyle(
+                    TableStyle(
+                        [
+                            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                            ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                            ("FONTSIZE", (0, 0), (-1, -1), 9),
+                            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                            ("TOPPADDING", (0, 0), (-1, -1), 4),
+                            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+                        ]
+                    )
+                )
+                elementos.append(tbl)
                 elementos.append(Spacer(1, 8))
 
             if not passos:
@@ -175,6 +275,10 @@ def gerar_pdf_apr(documento: Any, caminho_saida: str):
                     detalhes.append(("Medidas de controle", _to_str(p.get("medidas_controle"))))
                 if p.get("normas"):
                     detalhes.append(("Normas", _to_str(p.get("normas"))))
+                evidencia = p.get("technical_evidence")
+                if isinstance(evidencia, dict):
+                    legenda = evidencia.get("caption") or "Imagem anexada"
+                    detalhes.append(("Evidência técnica", _to_str(legenda)))
 
                 if detalhes:
                     tbl = Table([[k, v] for k, v in detalhes], colWidths=[120, 400])
@@ -195,6 +299,14 @@ def gerar_pdf_apr(documento: Any, caminho_saida: str):
                     )
                     elementos.append(Spacer(1, 4))
                     elementos.append(tbl)
+
+                if isinstance(evidencia, dict):
+                    img = _build_evidence_image(evidencia.get("path"))
+                    if img is not None:
+                        elementos.append(Spacer(1, 4))
+                        elementos.append(_safe_para("Evidência técnica (foto):", style_normal))
+                        elementos.append(Spacer(1, 2))
+                        elementos.append(img)
 
                 elementos.append(Spacer(1, 10))
 
