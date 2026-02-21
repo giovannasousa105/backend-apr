@@ -127,6 +127,10 @@ def _add_event(db: Session, apr: APR, event: str, payload: dict[str, Any], actor
 def _get_apr_or_404(apr_id: str, db: Session) -> APR:
     apr = db.execute(select(APR).where(APR.external_id == apr_id)).scalar_one_or_none()
     if not apr:
+        legacy_id = int(apr_id) if apr_id.isdigit() else None
+        if legacy_id is not None:
+            apr = db.get(APR, legacy_id)
+    if not apr:
         raise ApiError(status_code=404, code="not_found", message="APR nao encontrada", field="id")
     return apr
 

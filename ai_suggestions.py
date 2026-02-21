@@ -333,9 +333,9 @@ def _parse_error_message(body: str) -> str:
 
 
 def _call_gemini(payload: Dict[str, Any]) -> Dict[str, Any]:
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
     if not api_key:
-        raise AIConfigError("GEMINI_API_KEY nao configurada")
+        raise AIConfigError("GEMINI_API_KEY/GOOGLE_API_KEY nao configurada")
 
     model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     base_url = os.getenv("GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta")
