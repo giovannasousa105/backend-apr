@@ -40,6 +40,20 @@ Never commit real credentials.
 
 This repo also includes `backend/render.yaml` with the same setup.
 
+## 1.1) Backend FastAPI on Railway
+
+If Railway uses this repository root as the service root, the included `Procfile`
+already defines the correct boot command:
+
+- `python -m alembic upgrade head && python -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}`
+
+Important:
+
+- Do **not** use `backend.main:app` in this repository, because modules are imported
+  from the backend root (`main.py` imports `env_loader.py` directly).
+- Set Railway variables: `DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGINS`,
+  `CORS_ORIGIN_REGEX`, `CORS_ALLOW_ALL=false`.
+
 Create a Render Postgres database first, then copy its `External Database URL`
 into `DATABASE_URL` in the Web Service.
 
