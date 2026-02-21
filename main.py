@@ -223,12 +223,18 @@ def seed_from_xlsx() -> None:
         Base.metadata.create_all(bind=engine)
 
         if os.path.exists(epi_path):
-            importar_epis(db, epi_path)
+            try:
+                importar_epis(db, epi_path)
+            except Exception:
+                logger.exception("Seed skip: falha ao importar EPIs do arquivo %s", epi_path)
         else:
             print(f"Seed skip: arquivo nao encontrado: {epi_path}")
 
         if os.path.exists(perigo_path):
-            importar_perigos(db, perigo_path)
+            try:
+                importar_perigos(db, perigo_path)
+            except Exception:
+                logger.exception("Seed skip: falha ao importar Perigos do arquivo %s", perigo_path)
         else:
             print(f"Seed skip: arquivo nao encontrado: {perigo_path}")
 
