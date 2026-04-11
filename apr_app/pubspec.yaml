@@ -1,0 +1,43 @@
+name: apr_app
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  file_picker: ^10.3.8
+  intl: ^0.20.2
+  pdf: ^3.11.3
+  printing: ^5.14.2
+  path_provider: ^2.1.5
+  open_filex: ^4.7.0
+  shared_preferences: ^2.3.5
+  unorm_dart: ^0.2.0
+  supabase_flutter: ^1.5.0
+  http: ^1.5.0
+  google_fonts: ^6.2.1
+  flutter_svg: ^2.0.10
+  url_launcher: ^6.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/fonts/timesbd.ttf
+    - assets/fonts/times.ttf
+    - assets/images/logo_engesafety.png
+    - assets/brand/engesafety.png
