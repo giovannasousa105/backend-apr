@@ -347,17 +347,48 @@ class AprRepositoryImpl implements AprRepository {
   }
 
   LegacyAprDto? _matchLegacy(AprMvpDto mvp, List<LegacyAprDto> candidates) {
-    for (final item in candidates) {
-      if (item.title.trim().toLowerCase() == mvp.title.trim().toLowerCase()) {
-        return item;
-      }
-      if (mvp.location != null &&
-          item.worksite.trim().toLowerCase() ==
-              mvp.location!.trim().toLowerCase()) {
-        return item;
-      }
+    final mirrorActivityId = _buildLegacyMirrorActivityId(mvp.id);
+    final stableMatches = candidates
+        .where(
+          (item) => _normalizeMatchKey(item.activityId) == mirrorActivityId,
+        )
+        .toList();
+    if (stableMatches.length == 1) {
+      return stableMatches.single;
     }
-    return null;
+    if (stableMatches.length > 1) {
+      return null;
+    }
+
+    final decoded = AprFormCodec.decode(
+      location: mvp.location,
+      activity: mvp.activity,
+    );
+    final normalizedTitle = _normalizeMatchKey(mvp.title);
+    if (normalizedTitle.isEmpty) {
+      return null;
+    }
+
+    var fallbackMatches = candidates
+        .where((item) => _normalizeMatchKey(item.title) == normalizedTitle)
+        .toList();
+
+    final normalizedSite = _normalizeMatchKey(decoded.site);
+    final normalizedArea = _normalizeMatchKey(decoded.area);
+    if (fallbackMatches.length > 1 &&
+        (normalizedSite.isNotEmpty || normalizedArea.isNotEmpty)) {
+      fallbackMatches = fallbackMatches.where((item) {
+        final siteMatches =
+            normalizedSite.isEmpty ||
+            _normalizeMatchKey(item.worksite) == normalizedSite;
+        final areaMatches =
+            normalizedArea.isEmpty ||
+            _normalizeMatchKey(item.sector) == normalizedArea;
+        return siteMatches && areaMatches;
+      }).toList();
+    }
+
+    return fallbackMatches.length == 1 ? fallbackMatches.single : null;
   }
 
   Future<int?> _resolveLegacyId(String aprId, AprMvpDto? mvp) async {
@@ -383,7 +414,7 @@ class AprRepositoryImpl implements AprRepository {
             ? 'Equipe HCS'
             : fields.evaluator,
         'date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
-        'activity_id': 'mvp-${mvp.id}',
+        'activity_id': _buildLegacyMirrorActivityId(mvp.id),
         'activity_name': fields.characteristic.isEmpty
             ? mvp.title
             : fields.characteristic,
@@ -411,4 +442,8 @@ class AprRepositoryImpl implements AprRepository {
       return const <LegacyAprDto>[];
     }
   }
+
+  String _buildLegacyMirrorActivityId(String mvpId) => 'mvp-$mvpId';
+
+  String _normalizeMatchKey(String? value) => value?.trim().toLowerCase() ?? '';
 }

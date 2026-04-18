@@ -63,6 +63,7 @@ class LegacyAprDto {
     required this.worksite,
     required this.sector,
     required this.responsible,
+    required this.activityId,
     required this.risk,
     required this.dangerousEnergiesChecklist,
     this.date,
@@ -85,6 +86,7 @@ class LegacyAprDto {
       worksite: json['worksite']?.toString() ?? '',
       sector: json['sector']?.toString() ?? '',
       responsible: json['responsible']?.toString() ?? '',
+      activityId: _readString(json, 'activity_id', fallbackKey: 'atividade_id'),
       risk: json['risco']?.toString() ?? '',
       date: json['date'] == null
           ? null
@@ -119,11 +121,31 @@ class LegacyAprDto {
   final String worksite;
   final String sector;
   final String responsible;
+  final String? activityId;
   final String risk;
   final DateTime? date;
   final Map<String, dynamic> dangerousEnergiesChecklist;
   final List<LegacyStepDto> steps;
   final List<LegacyRiskItemDto> riskItems;
+}
+
+String? _readString(
+  Map<String, dynamic> json,
+  String key, {
+  String? fallbackKey,
+}) {
+  final primary = json[key]?.toString().trim();
+  if (primary != null && primary.isNotEmpty) {
+    return primary;
+  }
+  if (fallbackKey == null) {
+    return null;
+  }
+  final fallback = json[fallbackKey]?.toString().trim();
+  if (fallback != null && fallback.isNotEmpty) {
+    return fallback;
+  }
+  return null;
 }
 
 class LegacyStepDto {

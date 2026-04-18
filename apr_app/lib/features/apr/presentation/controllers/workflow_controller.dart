@@ -83,19 +83,19 @@ class WorkflowController extends ChangeNotifier {
   }
 
   Future<List<int>> exportPdf() async {
-    late List<int> bytes;
+    List<int>? bytes;
     await _guard(() async {
       bytes = await _repository.exportPdf(aprId);
     });
-    return bytes;
+    return bytes ?? const <int>[];
   }
 
   Future<String> sharePdf() async {
-    late String value;
+    String? value;
     await _guard(() async {
       value = await _repository.sharePdf(aprId);
     });
-    return value;
+    return value ?? '';
   }
 
   Future<void> _guard(Future<void> Function() action) async {
