@@ -283,7 +283,11 @@ def seed_from_xlsx() -> None:
 
     db = SessionLocal()
     try:
-        Base.metadata.create_all(bind=engine)
+        try:
+            Base.metadata.create_all(bind=engine)
+        except Exception:
+            logger.exception("Startup: nao foi possivel conectar ao banco — app sobe sem seed")
+            return
         ensure_framework_catalog(db)
 
         if os.path.exists(epi_path):
