@@ -15,7 +15,12 @@ def _normalize_database_url(raw_url: str) -> str:
     return url
 
 
-raw_database_url = os.getenv("DATABASE_URL", "").strip()
+# SUPABASE_DATABASE_URL tem prioridade — necessário quando o Render injeta
+# DATABASE_URL automaticamente via banco vinculado ao serviço.
+raw_database_url = (
+    os.getenv("SUPABASE_DATABASE_URL", "").strip()
+    or os.getenv("DATABASE_URL", "").strip()
+)
 if not raw_database_url:
     raise RuntimeError(
         "DATABASE_URL nao definido. Configure backend/.env (ou variavel de ambiente) "
