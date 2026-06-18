@@ -2,20 +2,13 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
-from database import SessionLocal
+from database import get_db
 from models import EPI, Perigo
 import schemas
 from auth import get_current_user
 
 router = APIRouter(tags=["Listagem"])
 
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/health")
@@ -45,3 +38,6 @@ def listar_perigos(
     limit = min(max(limit, 1), 200)
     stmt = select(Perigo).offset(skip).limit(limit)
     return db.execute(stmt).scalars().all()
+
+
+

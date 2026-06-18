@@ -17,6 +17,65 @@ from models import Passo, Perigo, RiskItem
 from text_normalizer import normalize_text, normalize_list
 
 _LIST_RE = re.compile(r";")
+_HIGH_SEVERITY_TOKENS = (
+    "morte",
+    "fatal",
+    "fatais",
+    "desabamento",
+    "soterr",
+    "explos",
+    "incendi",
+    "choque eletr",
+    "eletrocuss",
+    "arco eletr",
+    "amputa",
+    "asfix",
+    "queda de altura",
+    "traumatismo cran",
+)
+_MEDIUM_SEVERITY_TOKENS = (
+    "lesao grave",
+    "lesoes graves",
+    "acidente grave",
+    "acidentes graves",
+    "grave",
+    "graves",
+    "lesao",
+    "lesoes",
+    "fratura",
+    "esmagamento",
+    "queimadura",
+    "intoxica",
+    "queda",
+    "corte profundo",
+)
+_LOW_SEVERITY_TOKENS = (
+    "escoriac",
+    "irrita",
+    "desconfort",
+    "ferimento leve",
+)
+_HIGH_PROBABILITY_TOKENS = (
+    "iminente",
+    "constante",
+    "continu",
+    "frequente",
+    "repeti",
+    "sem prote",
+    "sem controle",
+    "sem isolamento",
+    "sem sinalizacao",
+    "instavel",
+    "improviso",
+    "energizada",
+    "trabalho em altura",
+)
+_LOW_PROBABILITY_TOKENS = (
+    "raro",
+    "ocasional",
+    "baixa prob",
+    "controlado",
+)
 
 
 def _split_list(value, *, origin: str, field: str) -> list[str]:
@@ -53,6 +112,62 @@ def _matrix_limits() -> tuple[int, int, int, int]:
     sev_min = _safe_int(sev.get("min")) or 1
     sev_max = _safe_int(sev.get("max")) or 5
     return prob_min, prob_max, sev_min, sev_max
+
+
+def _contains_any(text: str, tokens: tuple[str, ...]) -> bool:
+    if not text:
+        return False
+    return any(token in text for token in tokens)
+
+
+def _clamp_factor(value: int) -> int:
+    prob_min, prob_max, _sev_min, _sev_max = _matrix_limits()
+    return max(prob_min, min(prob_max, _safe_int(value)))
+
+
+def _infer_probability_severity(
+    *,
+    step_description: str,
+    hazards_text: str,
+    risk_description: str,
+) -> tuple[int, int]:
+    base_text = " ".join(
+        part
+        for part in [
+            normalize_text(step_description, keep_newlines=False, origin="system", field="step_description"),
+            normalize_text(hazards_text, keep_newlines=False, origin="system", field="hazards_text"),
+            normalize_text(risk_description, keep_newlines=False, origin="system", field="risk_description"),
+        ]
+        if part
+    ).lower()
+
+    if _contains_any(base_text, _HIGH_SEVERITY_TOKENS):
+        severity = 5
+    elif _contains_any(base_text, _MEDIUM_SEVERITY_TOKENS):
+        severity = 4
+    elif _contains_any(base_text, _LOW_SEVERITY_TOKENS):
+        severity = 2
+    else:
+        severity = 3
+
+    if _contains_any(base_text, _HIGH_PROBABILITY_TOKENS):
+        probability = 4
+    elif _contains_any(base_text, _LOW_PROBABILITY_TOKENS):
+        probability = 2
+    else:
+        probability = 3
+
+    if "desabamento" in base_text or "morte" in base_text or "fatal" in base_text:
+        severity = 5
+        probability = max(probability, 3)
+    if "altura" in base_text:
+        severity = max(severity, 4)
+        probability = max(probability, 3)
+    if "eletric" in base_text or "energia" in base_text:
+        severity = max(severity, 4)
+        probability = max(probability, 3)
+
+    return _clamp_factor(probability), _clamp_factor(severity)
 
 
 def _score_to_level(score: int) -> str | None:
@@ -125,6 +240,19 @@ def _resolve_hazard_id(
     matches = [p.id for name, p in known if name and name.lower() in risk_lower]
     if len(matches) == 1:
         return matches[0]
+    if known:
+        return known[0][1].id
+
+    risk_key = _norm_key(risk_description)
+    if risk_key:
+        best_id = None
+        best_len = 0
+        for key, perigo in hazard_lookup.items():
+            if key and key in risk_key and len(key) > best_len:
+                best_id = perigo.id
+                best_len = len(key)
+        if best_id:
+            return best_id
     return None
 
 
@@ -159,6 +287,26 @@ def rebuild_risk_items_for_apr(db: Session, apr_id: int) -> dict[str, int]:
             raw_severity = getattr(hazard, "default_severity", None) if hazard else None
             probability = _safe_int(raw_probability)
             severity = _safe_int(raw_severity)
+
+            infer_probability, infer_severity = _infer_probability_severity(
+                step_description=passo.descricao or "",
+                hazards_text=passo.perigos or "",
+                risk_description=risk_description,
+            )
+            prob_min, prob_max, sev_min, sev_max = _matrix_limits()
+            probability_is_valid = prob_min <= probability <= prob_max
+            severity_is_valid = sev_min <= severity <= sev_max
+
+            if not probability_is_valid:
+                probability = infer_probability
+            elif probability <= 2 and infer_probability >= 3:
+                probability = infer_probability
+
+            if not severity_is_valid:
+                severity = infer_severity
+            elif severity <= 2 and infer_severity >= 3:
+                severity = infer_severity
+
             score, level = compute_risk_score(probability, severity)
             if level == "invalid":
                 invalid += 1

@@ -8,3 +8,5 @@ alembic
 python-dotenv
 python-multipart
 reportlab
+redis
+httpx

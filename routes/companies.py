@@ -1,16 +1,20 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api_errors import ApiError
 from auth import get_current_user_optional, get_db
-from auth_utils import generate_token, hash_password, issue_session_token
+from auth_utils import generate_token, hash_password, issue_session_token, session_expires_at
 from models import Company, User
 from plan_utils import normalize_plan_name
+from request_guards import apply_rate_limit, request_identity, request_ip
 from rbac import ROLE_ADMIN
+from security_audit import record_security_event, resolve_auth_session
+from security_context import resolve_user_for_login, set_security_context
+from session_security import register_session
 from text_normalizer import normalize_text
 
 router = APIRouter(prefix="/companies", tags=["Companies"])
@@ -42,12 +46,26 @@ def _build_user_payload(user: User) -> dict:
     }
 
 
+def _extract_token(authorization: str | None, x_api_token: str | None) -> str | None:
+    if authorization:
+        value = authorization.strip()
+        if value.lower().startswith("bearer "):
+            return value.split(" ", 1)[1].strip()
+    if x_api_token:
+        return x_api_token.strip()
+    return None
+
+
 @router.post("", response_model=CompanyCreateResponse)
 def create_company(
     payload: CompanyCreateRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_api_token: str | None = Header(default=None, alias="X-API-Token"),
     db: Session = Depends(get_db),
     current_user: User | None = Depends(get_current_user_optional),
 ):
+    apply_rate_limit("company_create", request_identity(request, payload.admin_email or payload.name), limit=5, window_seconds=600)
     company_name = normalize_text(payload.name, keep_newlines=False, origin="user", field="name") or ""
     company_name = company_name.strip()
     if not company_name:
@@ -67,6 +85,15 @@ def create_company(
     company = Company(name=company_name, cnpj=cnpj, plan_name=plan_name)
     db.add(company)
     db.flush()
+    bootstrap_user_id = current_user.id if current_user is not None else None
+    bootstrap_role = current_user.role if current_user is not None else ROLE_ADMIN
+    set_security_context(
+        db,
+        company_id=company.id,
+        user_id=bootstrap_user_id,
+        user_role=bootstrap_role,
+        auth_bootstrap=True,
+    )
 
     if current_user is not None:
         if current_user.company_id:
@@ -106,7 +133,7 @@ def create_company(
                 message="Senha do admin obrigatoria",
                 field="admin_password",
             )
-        existing_user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+        existing_user = resolve_user_for_login(db, email)
         if existing_user:
             raise ApiError(status_code=409, code="conflict", message="Email do admin ja cadastrado", field="admin_email")
         admin_name = normalize_text(payload.admin_name, keep_newlines=False, origin="user", field="admin_name")
@@ -123,9 +150,41 @@ def create_company(
     db.commit()
     db.refresh(user)
     db.refresh(company)
+    set_security_context(db, company_id=company.id, user_id=user.id, user_role=user.role)
+    token = issue_session_token(user.api_token)
+    expires_at = session_expires_at(token)
+    if not expires_at:
+        raise ApiError(status_code=500, code="server_error", message="Falha ao gerar sessao", field="token")
+    issued_session = register_session(
+        db,
+        user=user,
+        token=token,
+        expires_at=expires_at,
+        ip_address=request.headers.get("x-forwarded-for") or (request.client.host if request.client else None),
+        user_agent=request.headers.get("user-agent"),
+    )
+    actor = current_user or user
+    current_session = resolve_auth_session(db, _extract_token(authorization, x_api_token))
+    set_security_context(db, company_id=company.id, user_id=user.id, user_role=user.role)
+    event_name = "admin_company_created" if current_user is not None else "admin_company_bootstrapped"
+    record_security_event(
+        db,
+        user=actor,
+        event=event_name,
+        payload={
+            "company_id": company.id,
+            "company_name": company.name,
+            "plan_name": company.plan_name,
+            "admin_user_id": user.id,
+        },
+        ip_address=request_ip(request),
+        user_agent=request.headers.get("user-agent"),
+        session=current_session if current_user is not None else issued_session,
+    )
+    db.commit()
 
     return {
-        "token": issue_session_token(user.api_token),
+        "token": token,
         "user": _build_user_payload(user),
         "company": {
             "id": company.id,

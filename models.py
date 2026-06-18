@@ -2,6 +2,7 @@ from datetime import datetime
 import json
 from uuid import uuid4
 from sqlalchemy import Column, Integer, String, Text, UniqueConstraint, ForeignKey, DateTime, Date, Boolean
+from sqlalchemy import event as sqlalchemy_event
 from sqlalchemy.orm import relationship
 from database import Base
 from plan_utils import DEFAULT_PLAN, normalize_plan_name
@@ -44,6 +45,7 @@ class Company(Base):
     users = relationship("User", back_populates="company", lazy="selectin")
     aprs = relationship("APR", back_populates="company", lazy="selectin")
     invites = relationship("Invite", back_populates="company", lazy="selectin")
+    norm_profiles = relationship("NormProfile", back_populates="company", lazy="selectin")
 
     @property
     def plan(self) -> str:
@@ -62,12 +64,15 @@ class User(Base):
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
     api_token = Column(String(64), nullable=False, unique=True, index=True)
     is_active = Column(Boolean, nullable=False, default=True)
+    mfa_enabled = Column(Boolean, nullable=False, default=False)
+    mfa_secret = Column(String(64), nullable=True)
+    mfa_backup_codes_json = Column("mfa_backup_codes", Text, nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     company = relationship("Company", back_populates="users")
-    aprs = relationship("APR", back_populates="user", lazy="selectin")
+    aprs = relationship("APR", back_populates="user", foreign_keys="APR.user_id", lazy="selectin")
     invites_sent = relationship(
         "Invite",
         back_populates="inviter",
@@ -80,6 +85,130 @@ class User(Base):
         foreign_keys="Invite.accepted_by",
         lazy="selectin",
     )
+    assigned_tasks = relationship(
+        "APRTask",
+        foreign_keys="APRTask.assigned_to_user_id",
+        lazy="selectin",
+    )
+    requested_tasks = relationship(
+        "APRTask",
+        foreign_keys="APRTask.requested_by_user_id",
+        lazy="selectin",
+    )
+    approved_aprs = relationship(
+        "APR",
+        foreign_keys="APR.approved_by_user_id",
+        lazy="selectin",
+    )
+    norm_profiles_updated = relationship(
+        "NormProfile",
+        foreign_keys="NormProfile.updated_by",
+        lazy="selectin",
+    )
+    sessions = relationship(
+        "AuthSession",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    security_events = relationship(
+        "SecurityAuditEvent",
+        back_populates="user",
+        lazy="selectin",
+    )
+
+
+class NormFramework(Base):
+    __tablename__ = "norm_frameworks"
+
+    id = Column(String(40), primary_key=True)
+    type = Column(String(20), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    country_scope = Column(String(10), nullable=False, default="INTL")
+    is_base = Column(Boolean, nullable=False, default=False)
+    is_enabled_global = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class NormProfile(Base):
+    __tablename__ = "norm_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    scope_type = Column(String(20), nullable=False, index=True)  # company | contract | unit
+    scope_id = Column(String(64), nullable=False, index=True)
+    base_framework_id = Column(String(40), ForeignKey("norm_frameworks.id", ondelete="RESTRICT"), nullable=False)
+    optional_framework_ids_json = Column("optional_framework_ids", Text, nullable=False, default="[]")
+    risk_engine_mode = Column(String(60), nullable=False, default="NR_BR")
+    version = Column(Integer, nullable=False, default=1)
+    updated_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    company = relationship("Company", back_populates="norm_profiles")
+    base_framework = relationship("NormFramework")
+    updated_by_user = relationship("User", foreign_keys=[updated_by], back_populates="norm_profiles_updated")
+    aprs = relationship("APR", back_populates="norm_profile", lazy="selectin")
+    events = relationship(
+        "NormProfileEvent",
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="NormProfileEvent.created_at",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "scope_type", "scope_id", name="uq_norm_profile_scope"),
+    )
+
+    @property
+    def optional_framework_ids(self) -> list[str]:
+        raw = self.optional_framework_ids_json
+        if not raw:
+            return []
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return []
+        if not isinstance(data, list):
+            return []
+        out: list[str] = []
+        for item in data:
+            value = str(item).strip()
+            if value:
+                out.append(value)
+        return out
+
+    @optional_framework_ids.setter
+    def optional_framework_ids(self, value) -> None:
+        if not isinstance(value, list):
+            self.optional_framework_ids_json = "[]"
+            return
+        normalized = []
+        seen = set()
+        for item in value:
+            candidate = str(item).strip()
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            normalized.append(candidate)
+        self.optional_framework_ids_json = json.dumps(normalized, ensure_ascii=False)
+
+
+class NormProfileEvent(Base):
+    __tablename__ = "norm_profile_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    profile_id = Column(Integer, ForeignKey("norm_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    event = Column(String(40), nullable=False, default="updated")
+    payload = Column(Text, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    profile = relationship("NormProfile", back_populates="events")
 
 
 class APR(Base):
@@ -98,15 +227,25 @@ class APR(Base):
     responsible = Column(String(255), nullable=True)
     activity_id = Column(String(64), nullable=True, index=True)
     activity_name = Column(String(255), nullable=True)
+    contract_id = Column(String(64), nullable=True, index=True)
+    unit_id = Column(String(64), nullable=True, index=True)
     date = Column(Date, nullable=True)
     source_hashes = Column(Text, nullable=True)
     template_version = Column(String(20), nullable=True)
+    norm_profile_id = Column(Integer, ForeignKey("norm_profiles.id", ondelete="SET NULL"), nullable=True, index=True)
+    norm_profile_version = Column(Integer, nullable=True)
+    norm_profile_mode = Column(String(60), nullable=True)
+    norm_profile_snapshot_json = Column("norm_profile_snapshot", Text, nullable=True)
     dangerous_energies_checklist_json = Column("dangerous_energies_checklist", Text, nullable=True)
 
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     status = Column(String(30), nullable=False, default="rascunho")
+    current_stage = Column(String(20), nullable=False, default="criar", server_default="criar")
+    approved_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    approved_by_name = Column(String(255), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
 
     criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
     atualizado_em = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -126,7 +265,8 @@ class APR(Base):
         order_by="RiskItem.id",
     )
     company = relationship("Company", back_populates="aprs")
-    user = relationship("User", back_populates="aprs")
+    user = relationship("User", back_populates="aprs", foreign_keys=[user_id])
+    approved_by_user = relationship("User", foreign_keys=[approved_by_user_id], back_populates="approved_aprs")
     events = relationship(
         "APREvent",
         back_populates="apr",
@@ -141,6 +281,14 @@ class APR(Base):
         lazy="selectin",
         order_by="APRShare.criado_em",
     )
+    tasks = relationship(
+        "APRTask",
+        back_populates="apr",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="APRTask.created_at",
+    )
+    norm_profile = relationship("NormProfile", back_populates="aprs")
 
     @property
     def dangerous_energies_checklist(self) -> dict:
@@ -239,6 +387,32 @@ class APR(Base):
         normalized = [item for item in value if isinstance(item, dict)]
         self.controls_json = json.dumps(normalized, ensure_ascii=False)
 
+    @property
+    def norm_profile_snapshot(self) -> dict | None:
+        raw = self.norm_profile_snapshot_json
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return None
+        return data if isinstance(data, dict) else None
+
+    @norm_profile_snapshot.setter
+    def norm_profile_snapshot(self, value) -> None:
+        data = value
+        if hasattr(value, "model_dump"):
+            data = value.model_dump()
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                data = None
+        if not isinstance(data, dict):
+            self.norm_profile_snapshot_json = None
+            return
+        self.norm_profile_snapshot_json = json.dumps(data, ensure_ascii=False)
+
 
 class Passo(Base):
     __tablename__ = "passos"
@@ -322,6 +496,36 @@ class APREvent(Base):
     apr = relationship("APR", back_populates="events")
 
 
+class APRTask(Base):
+    __tablename__ = "apr_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    apr_id = Column(Integer, ForeignKey("aprs.id", ondelete="CASCADE"), nullable=False, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True, index=True)
+    step_id = Column(Integer, ForeignKey("passos.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    type = Column(String(40), nullable=False, default="generic")
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+
+    assigned_to_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    requested_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    priority = Column(String(20), nullable=False, default="normal")
+    status = Column(String(20), nullable=False, default="open", index=True)
+    due_at = Column(DateTime, nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    reason = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    apr = relationship("APR", back_populates="tasks")
+    step = relationship("Passo")
+    assigned_to = relationship("User", foreign_keys=[assigned_to_user_id], back_populates="assigned_tasks")
+    requested_by = relationship("User", foreign_keys=[requested_by_user_id], back_populates="requested_tasks")
+
+
 class APRShare(Base):
     __tablename__ = "apr_shares"
 
@@ -357,3 +561,53 @@ class Invite(Base):
     company = relationship("Company", back_populates="invites")
     inviter = relationship("User", foreign_keys=[invited_by], back_populates="invites_sent")
     acceptor = relationship("User", foreign_keys=[accepted_by], back_populates="invites_accepted")
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True, index=True)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    ip_address = Column(String(64), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+
+    issued_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    refresh_expires_at = Column(DateTime, nullable=False, index=True)
+    last_seen_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True, index=True)
+    revoke_reason = Column(String(64), nullable=True)
+
+    user = relationship("User", back_populates="sessions")
+    security_events = relationship("SecurityAuditEvent", back_populates="session", lazy="selectin")
+
+
+class SecurityAuditEvent(Base):
+    __tablename__ = "security_audit_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    session_id = Column(Integer, ForeignKey("auth_sessions.id", ondelete="SET NULL"), nullable=True, index=True)
+    event = Column(String(80), nullable=False, index=True)
+    payload = Column(Text, nullable=True)
+    ip_address = Column(String(64), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    previous_hash = Column(String(64), nullable=True)
+    event_hash = Column(String(64), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    user = relationship("User", back_populates="security_events")
+    session = relationship("AuthSession", back_populates="security_events")
+
+
+@sqlalchemy_event.listens_for(SecurityAuditEvent, "before_update", propagate=True)
+def _prevent_security_audit_event_update(_mapper, _connection, _target) -> None:
+    raise ValueError("security_audit_events is append-only")
+
+
+@sqlalchemy_event.listens_for(SecurityAuditEvent, "before_delete", propagate=True)
+def _prevent_security_audit_event_delete(_mapper, _connection, _target) -> None:
+    raise ValueError("security_audit_events is append-only")

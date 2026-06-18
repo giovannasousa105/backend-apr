@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, delete
+import asyncio
 from datetime import datetime
 from uuid import uuid4
 import json
@@ -12,13 +13,14 @@ import os
 from pathlib import Path
 import shutil
 
-from database import SessionLocal
+from database import get_db
 from models import APR, Passo, APREvent, APRShare, User, RiskItem, Company
 import schemas
 from apr_flow import get_activity_suggestions
 from apr_documents import write_apr_pdf, validate_apr_for_pdf, PDF_TEMPLATE_VERSION
 from excel_contract import get_excel_hashes
 from ai_suggestions import (
+    generate_ai_step_image,
     generate_ai_steps_from_image,
     AIConfigError,
     AIResponseError,
@@ -27,10 +29,17 @@ from ai_suggestions import (
 from api_errors import ApiError, missing_fields_error
 from text_normalizer import normalize_text, normalize_list
 from auth import get_current_user
+from request_guards import apply_rate_limit, request_identity
 from plan_utils import get_plan_tier, normalize_plan_name
-from risk_engine import compute_risk_score, rebuild_risk_items_for_apr, list_risk_items_for_apr
+from risk_engine import (
+    compute_risk_score,
+    rebuild_risk_items_for_apr,
+    list_risk_items_for_apr,
+    has_invalid_risk_items,
+)
 from status_utils import normalize_status
 from rbac import can_write, normalize_role
+from norm_profile_service import apply_profile_snapshot_to_apr, resolve_norm_profile
 
 router = APIRouter(prefix="/v1/aprs", tags=["APR"])
 logger = logging.getLogger(__name__)
@@ -41,6 +50,12 @@ _STATUS_APROVADO = "aprovado"
 _STATUS_REPROVADO = "reprovado"
 _STATUS_ARQUIVADO = "arquivado"
 _EDITABLE_STATUSES = {_STATUS_RASCUNHO, _STATUS_REPROVADO, "draft", "rejected"}
+_AI_KEY_ERROR_TOKENS = (
+    "api key not found",
+    "api key invalid",
+    "api_key_invalid",
+    "api_key_service_blocked",
+)
 
 
 class AIStepImage(BaseModel):
@@ -50,6 +65,7 @@ class AIStepImage(BaseModel):
     consequences: str
     safeguards: str
     epis: list[str]
+    regulations: list[str] = Field(default_factory=list)
 
 
 class AIStepsImageResponse(BaseModel):
@@ -61,12 +77,36 @@ class APRStatusUpdateRequest(BaseModel):
     reason: str | None = None
 
 
-def get_db():
-    db = SessionLocal()
+def _invalidate_dashboard_cache(company_id: int | None, event_dt: datetime | None = None) -> None:
+    if not company_id:
+        return
     try:
-        yield db
-    finally:
-        db.close()
+        from routes.risk_dashboard import get_redis_client, invalidate_risk_dashboard_cache
+
+        redis = get_redis_client()
+        if redis is None:
+            return
+        asyncio.run(
+            invalidate_risk_dashboard_cache(
+                redis=redis,
+                company_id=int(company_id),
+                event_dt=event_dt or datetime.utcnow(),
+            )
+        )
+    except Exception:
+        logger.debug("Falha ao invalidar cache do dashboard de riscos", exc_info=True)
+
+
+def _public_ai_error_message(message: str) -> str:
+    msg = (message or "").strip()
+    lowered = msg.lower()
+    if any(token in lowered for token in _AI_KEY_ERROR_TOKENS):
+        return "Servico de IA indisponivel no momento. Tente novamente em instantes."
+    if "nao configurada" in lowered and "gemini_api_key" in lowered:
+        return "Servico de IA indisponivel no momento. Tente novamente em instantes."
+    if "quota exceeded" in lowered or "rate limit" in lowered:
+        return "Cota da IA esgotada no momento. Aguarde alguns minutos e tente novamente."
+    return msg or "Falha ao gerar passos com IA"
 
 
 def _join_list(value, *, origin: str, field: str) -> str:
@@ -112,6 +152,13 @@ def _is_missing(value: object) -> bool:
     if isinstance(value, str) and not value.strip():
         return True
     return False
+
+
+def _normalize_scope_ref(value: str | None) -> str | None:
+    normalized = normalize_text(value, keep_newlines=False, origin="user", field="scope_ref")
+    if not normalized:
+        return None
+    return normalized
 
 
 def _validate_required_apr_fields(payload: schemas.APRCreate) -> None:
@@ -175,7 +222,7 @@ def _ensure_finalized(apr: APR) -> None:
         raise ApiError(
             status_code=400,
             code="apr_not_final",
-            message="APR precisa estar finalizada para esta ação",
+            message="APR precisa estar finalizada para esta aÃ§Ã£o",
             field="status",
         )
 
@@ -248,12 +295,35 @@ def _validate_status_transition(current_status: str, next_status: str) -> None:
         )
 
 
+def _stage_from_status(normalized_status: str) -> str:
+    if normalized_status == "draft":
+        return "criar"
+    if normalized_status == "submitted":
+        return "aprovacao"
+    if normalized_status == "rejected":
+        return "controles"
+    if normalized_status in {"approved", "final"}:
+        return "execucao"
+    if normalized_status == "archived":
+        return "relatorio"
+    return "perigos"
+
+
+def _apr_mutation_identity(request: Request, user: User, resource: str | None = None) -> str:
+    principal = str(user.id)
+    if resource:
+        principal = f"{user.id}:{resource}"
+    return request_identity(request, principal)
+
+
 @router.post("", response_model=schemas.APROut)
 def criar_apr(
     payload: schemas.APRCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_create", _apr_mutation_identity(request, current_user), limit=30, window_seconds=60)
     _ensure_write_access(current_user)
     _validate_required_apr_fields(payload)
     if not current_user.company_id:
@@ -281,6 +351,8 @@ def criar_apr(
         worksite=payload.worksite,
         sector=payload.sector,
         responsible=payload.responsible,
+        contract_id=_normalize_scope_ref(payload.contract_id),
+        unit_id=_normalize_scope_ref(payload.unit_id),
         date=payload.date,
         activity_id=payload.activity_id,
         activity_name=payload.activity_name or payload.titulo or titulo,
@@ -288,6 +360,14 @@ def criar_apr(
         user_id=current_user.id,
         status="rascunho",
     )
+    profile, resolved_from = resolve_norm_profile(
+        db,
+        company_id=int(current_user.company_id),
+        contract_id=apr.contract_id,
+        unit_id=apr.unit_id,
+        actor_user_id=current_user.id,
+    )
+    apply_profile_snapshot_to_apr(apr, profile, resolved_from=resolved_from)
     if payload.dangerous_energies_checklist is not None:
         apr.dangerous_energies_checklist = payload.dangerous_energies_checklist
     db.add(apr)
@@ -304,6 +384,11 @@ def criar_apr(
             "date": apr.date.isoformat() if apr.date else None,
             "activity_id": apr.activity_id,
             "activity_name": apr.activity_name,
+            "contract_id": apr.contract_id,
+            "unit_id": apr.unit_id,
+            "norm_profile_id": apr.norm_profile_id,
+            "norm_profile_version": apr.norm_profile_version,
+            "norm_profile_mode": apr.norm_profile_mode,
         },
         actor=current_user,
     )
@@ -335,6 +420,23 @@ def obter_apr(
     if not apr:
         raise ApiError(status_code=404, code="not_found", message="APR nao encontrada", field="apr_id")
     _ensure_apr_access(apr, current_user)
+    has_steps_with_risks = any((passo.riscos or "").strip() for passo in apr.passos)
+    has_risk_items = len(apr.risk_items) > 0
+    suspicious_flat_matrix = False
+    if has_risk_items:
+        scores = [int(item.score or 0) for item in apr.risk_items]
+        # "Tudo em PxS 1" costuma indicar matriz antiga/desatualizada sem inferencia real.
+        suspicious_flat_matrix = bool(scores) and all(score <= 1 for score in scores)
+
+    needs_rebuild = has_steps_with_risks and (
+        not has_risk_items
+        or has_invalid_risk_items(apr.risk_items)
+        or suspicious_flat_matrix
+    )
+    if needs_rebuild:
+        rebuild_risk_items_for_apr(db, apr_id)
+        db.commit()
+        db.refresh(apr)
     return apr
 
 
@@ -363,12 +465,14 @@ def sugerir_para_apr(
 @router.post("/{apr_id}/ai-steps", response_model=AIStepsImageResponse)
 def gerar_passos_por_imagem(
     apr_id: int,
+    request: Request,
     file: UploadFile | None = File(default=None),
     descricao: str | None = Form(default=None),
     max_steps: int = Form(default=6),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_ai_steps", _apr_mutation_identity(request, current_user, str(apr_id)), limit=10, window_seconds=300)
     _ensure_write_access(current_user)
     apr = db.get(APR, apr_id)
     if not apr:
@@ -429,15 +533,71 @@ def gerar_passos_por_imagem(
             field="max_steps",
         )
 
+    normative_context: dict[str, object] = {}
+    if apr.company_id:
+        profile, resolved_from = resolve_norm_profile(
+            db,
+            company_id=int(apr.company_id),
+            contract_id=apr.contract_id,
+            unit_id=apr.unit_id,
+            actor_user_id=current_user.id,
+        )
+        apply_profile_snapshot_to_apr(apr, profile, resolved_from=resolved_from)
+        normative_context = {
+            "base_framework_id": profile.base_framework_id,
+            "optional_framework_ids": profile.optional_framework_ids,
+            "active_frameworks": [
+                profile.base_framework_id,
+                *profile.optional_framework_ids,
+            ],
+            "risk_engine_mode": profile.risk_engine_mode,
+            "profile_version": profile.version,
+        }
+
+    activity_context: dict[str, object] = {}
+    if apr.activity_id:
+        try:
+            suggestions = get_activity_suggestions(apr.activity_id)
+            if suggestions:
+                raw_steps = suggestions.get("steps") or []
+                step_descriptions = [
+                    str(step.get("description") or "").strip()
+                    for step in raw_steps
+                    if isinstance(step, dict) and str(step.get("description") or "").strip()
+                ]
+                agg = suggestions.get("suggestions") or {}
+                activity = suggestions.get("activity") or {}
+                activity_context = {
+                    "activity_id": activity.get("id") or apr.activity_id,
+                    "activity_name": activity.get("name") or apr.activity_name,
+                    "step_descriptions": step_descriptions[:4],
+                    "hazards": list(agg.get("hazards") or [])[:8],
+                    "measures": list(agg.get("measures") or [])[:8],
+                    "regulations": list(agg.get("regulations") or [])[:10],
+                }
+        except Exception:
+            logger.debug(
+                "Falha ao carregar contexto do Excel para IA na APR %s",
+                apr_id,
+                exc_info=True,
+            )
+
     try:
         result = generate_ai_steps_from_image(
             image_bytes=image_bytes,
             image_mime=image_mime,
             descricao=descricao,
             max_steps=max_steps,
+            activity_context=activity_context,
+            normative_context=normative_context,
         )
     except AIConfigError as exc:
-        raise ApiError(status_code=503, code="ai_not_configured", message=str(exc), field=None)
+        raise ApiError(
+            status_code=503,
+            code="ai_not_configured",
+            message=_public_ai_error_message(str(exc)),
+            field=None,
+        )
     except AITextInvalidEncodingError as exc:
         raise ApiError(
             status_code=502,
@@ -447,7 +607,10 @@ def gerar_passos_por_imagem(
         )
     except AIResponseError as exc:
         logger.warning("IA falhou para APR %s: %s", apr_id, exc)
-        raise ApiError(status_code=502, code="ai_error", message=str(exc), field=None)
+        message = _public_ai_error_message(str(exc))
+        if "alta demanda" in message:
+            raise ApiError(status_code=429, code="ai_rate_limited", message=message, field=None)
+        raise ApiError(status_code=502, code="ai_error", message=message, field=None)
     except Exception:
         logger.exception("Erro inesperado ao gerar passos com IA")
         raise ApiError(
@@ -461,7 +624,13 @@ def gerar_passos_por_imagem(
         db,
         apr_id,
         "ai_steps_image",
-        {"count": len(result.get("steps") or []), "has_image": bool(image_bytes)},
+        {
+            "count": len(result.get("steps") or []),
+            "has_image": bool(image_bytes),
+            "norm_profile_mode": apr.norm_profile_mode,
+            "norm_profile_version": apr.norm_profile_version,
+            "has_excel_context": bool(activity_context),
+        },
         actor=current_user,
     )
     db.commit()
@@ -473,9 +642,11 @@ def gerar_passos_por_imagem(
 def atualizar_apr(
     apr_id: int,
     payload: schemas.APRUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_update", _apr_mutation_identity(request, current_user, str(apr_id)), limit=60, window_seconds=60)
     _ensure_write_access(current_user)
     apr = db.get(APR, apr_id)
     if not apr:
@@ -488,6 +659,8 @@ def atualizar_apr(
         "worksite",
         "sector",
         "responsible",
+        "contract_id",
+        "unit_id",
         "date",
         "activity_id",
         "activity_name",
@@ -497,6 +670,8 @@ def atualizar_apr(
     ]:
         value = getattr(payload, field)
         if value is not None:
+            if field in {"contract_id", "unit_id"}:
+                value = _normalize_scope_ref(value)
             setattr(apr, field, value)
             updates[field] = value
 
@@ -511,6 +686,22 @@ def atualizar_apr(
         apr.activity_name = str(payload.titulo)
         updates["activity_name"] = apr.activity_name
 
+    if apr.norm_profile_id is None or "contract_id" in updates or "unit_id" in updates:
+        company_id_for_profile = apr.company_id or current_user.company_id
+        if not company_id_for_profile:
+            raise ApiError(status_code=403, code="forbidden", message="APR sem empresa vinculada", field="company_id")
+        profile, resolved_from = resolve_norm_profile(
+            db,
+            company_id=int(company_id_for_profile),
+            contract_id=apr.contract_id,
+            unit_id=apr.unit_id,
+            actor_user_id=current_user.id,
+        )
+        apply_profile_snapshot_to_apr(apr, profile, resolved_from=resolved_from)
+        updates["norm_profile_id"] = profile.id
+        updates["norm_profile_version"] = profile.version
+        updates["norm_profile_mode"] = profile.risk_engine_mode
+
     if updates:
         _add_event(db, apr.id, "updated", updates, actor=current_user)
         db.commit()
@@ -522,9 +713,11 @@ def atualizar_apr(
 def atualizar_status_apr(
     apr_id: int,
     payload: APRStatusUpdateRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_status_update", _apr_mutation_identity(request, current_user, str(apr_id)), limit=30, window_seconds=60)
     _ensure_write_access(current_user)
     apr = db.get(APR, apr_id)
     if not apr:
@@ -539,6 +732,7 @@ def atualizar_status_apr(
 
     _validate_status_transition(current_normalized, next_normalized)
     apr.status = next_label
+    apr.current_stage = _stage_from_status(next_normalized)
     db.commit()
     db.refresh(apr)
     _add_event(
@@ -559,9 +753,11 @@ def atualizar_status_apr(
 @router.delete("/{apr_id}", response_model=dict)
 def excluir_apr(
     apr_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_delete", _apr_mutation_identity(request, current_user, str(apr_id)), limit=20, window_seconds=60)
     _ensure_write_access(current_user)
     apr = db.get(APR, apr_id)
     if not apr:
@@ -570,6 +766,7 @@ def excluir_apr(
     current_normalized, _ = _normalize_status_label(apr.status or _STATUS_RASCUNHO)
     _validate_status_transition(current_normalized, "archived")
     apr.status = _STATUS_ARQUIVADO
+    apr.current_stage = "relatorio"
     db.commit()
     _add_event(
         db,
@@ -586,9 +783,11 @@ def excluir_apr(
 def adicionar_passo(
     apr_id: int,
     payload: schemas.PassoCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_step_create", _apr_mutation_identity(request, current_user, str(apr_id)), limit=60, window_seconds=60)
     _ensure_write_access(current_user)
     apr = db.get(APR, apr_id)
     if not apr:
@@ -630,6 +829,7 @@ def adicionar_passo(
         actor=current_user,
     )
     db.commit()
+    _invalidate_dashboard_cache(apr.company_id)
     return passo
 
 
@@ -638,9 +838,11 @@ def atualizar_passo(
     apr_id: int,
     passo_id: int,
     payload: schemas.PassoUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_step_update", _apr_mutation_identity(request, current_user, f"{apr_id}:{passo_id}"), limit=60, window_seconds=60)
     _ensure_write_access(current_user)
     passo = db.get(Passo, passo_id)
     if not passo or passo.apr_id != apr_id:
@@ -685,6 +887,7 @@ def atualizar_passo(
     rebuild_risk_items_for_apr(db, apr_id)
     _add_event(db, apr_id, "step_updated", {"passo_id": passo_id}, actor=current_user)
     db.commit()
+    _invalidate_dashboard_cache(apr.company_id if apr else passo.company_id)
     return passo
 
 
@@ -692,9 +895,11 @@ def atualizar_passo(
 def remover_passo(
     apr_id: int,
     passo_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_step_delete", _apr_mutation_identity(request, current_user, f"{apr_id}:{passo_id}"), limit=30, window_seconds=60)
     _ensure_write_access(current_user)
     passo = db.get(Passo, passo_id)
     if not passo or passo.apr_id != apr_id:
@@ -708,6 +913,7 @@ def remover_passo(
     rebuild_risk_items_for_apr(db, apr_id)
     _add_event(db, apr_id, "step_removed", {"passo_id": passo_id}, actor=current_user)
     db.commit()
+    _invalidate_dashboard_cache(apr.company_id if apr else passo.company_id)
     return {"status": "ok"}
 
 
@@ -715,11 +921,13 @@ def remover_passo(
 def adicionar_evidencia(
     apr_id: int,
     passo_id: int,
+    request: Request,
     file: UploadFile = File(...),
     caption: str | None = Form(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_evidence_upload", _apr_mutation_identity(request, current_user, f"{apr_id}:{passo_id}"), limit=20, window_seconds=300)
     _ensure_write_access(current_user)
     apr, passo = _get_passo_with_access(db, apr_id, passo_id, current_user)
     _ensure_editable(apr)
@@ -781,6 +989,108 @@ def adicionar_evidencia(
     return passo.technical_evidence
 
 
+@router.post("/{apr_id}/passos/{passo_id}/evidencia/ai", response_model=schemas.TechnicalEvidenceOut)
+def adicionar_evidencia_ai(
+    apr_id: int,
+    passo_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    apply_rate_limit("aprs_evidence_ai", _apr_mutation_identity(request, current_user, f"{apr_id}:{passo_id}"), limit=10, window_seconds=300)
+    _ensure_write_access(current_user)
+    apr, passo = _get_passo_with_access(db, apr_id, passo_id, current_user)
+    _ensure_editable(apr)
+
+    activity = apr.activity_name or apr.titulo or "Atividade operacional"
+    step_description = passo.descricao or ""
+    hazards = passo.perigos or ""
+    consequences = passo.riscos or ""
+    safeguards = passo.medidas_controle or ""
+    epis = passo.epis or ""
+    regulations = passo.normas or ""
+
+    try:
+        image_result = generate_ai_step_image(
+            activity=activity,
+            step_description=step_description,
+            hazards=hazards,
+            consequences=consequences,
+            safeguards=safeguards,
+            epis=epis,
+            regulations=regulations,
+        )
+    except AIConfigError as exc:
+        raise ApiError(
+            status_code=503,
+            code="ai_not_configured",
+            message=_public_ai_error_message(str(exc)),
+            field=None,
+        )
+    except AIResponseError as exc:
+        logger.warning("IA de imagem falhou para APR %s passo %s: %s", apr_id, passo_id, exc)
+        message = _public_ai_error_message(str(exc))
+        if "alta demanda" in message:
+            raise ApiError(status_code=429, code="ai_rate_limited", message=message, field=None)
+        raise ApiError(status_code=502, code="ai_error", message=message, field=None)
+    except Exception:
+        logger.exception("Erro inesperado ao gerar evidencia de imagem por IA")
+        raise ApiError(
+            status_code=500,
+            code="ai_error",
+            message="Falha ao gerar imagem por IA",
+            field=None,
+        )
+
+    image_bytes = image_result.get("bytes")
+    image_mime = str(image_result.get("mime") or "").lower()
+    source = str(image_result.get("source") or "ai_provider")
+    if not isinstance(image_bytes, (bytes, bytearray)) or not image_bytes:
+        raise ApiError(
+            status_code=502,
+            code="ai_error",
+            message="IA retornou imagem invalida",
+            field=None,
+        )
+
+    ext = ".png" if "png" in image_mime else ".jpg"
+    evidence_dir = _ensure_evidence_dir()
+    new_filename = f"{uuid4().hex}{ext}"
+    path = evidence_dir / new_filename
+
+    with path.open("wb") as buffer:
+        buffer.write(image_bytes)
+
+    if passo.evidence_filename:
+        old_path = evidence_dir / passo.evidence_filename
+        try:
+            if old_path.exists():
+                old_path.unlink()
+        except Exception:
+            logger.warning("Falha ao remover evidencia antiga do passo %s", passo_id)
+
+    passo.evidence_type = "image_ai"
+    passo.evidence_filename = new_filename
+    passo.evidence_caption = normalize_text(
+        f"Imagem gerada por IA ({source}) para o passo {passo.ordem}",
+        keep_newlines=False,
+        origin="ai",
+        field="caption",
+    )
+    passo.evidence_uploaded_at = datetime.utcnow()
+
+    _add_event(
+        db,
+        apr_id,
+        "evidence_ai_generated",
+        {"passo_id": passo_id, "filename": new_filename, "source": source},
+        actor=current_user,
+    )
+    db.commit()
+    db.refresh(passo)
+    return passo.technical_evidence
+
+
 @router.get("/{apr_id}/passos/{passo_id}/evidencia")
 def baixar_evidencia(
     apr_id: int,
@@ -804,9 +1114,11 @@ def baixar_evidencia(
 def remover_evidencia(
     apr_id: int,
     passo_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_evidence_delete", _apr_mutation_identity(request, current_user, f"{apr_id}:{passo_id}"), limit=30, window_seconds=60)
     _ensure_write_access(current_user)
     _apr, passo = _get_passo_with_access(db, apr_id, passo_id, current_user)
     _ensure_editable(_apr)
@@ -834,9 +1146,11 @@ def remover_evidencia(
 def adicionar_passos_em_lote(
     apr_id: int,
     payload: schemas.PassoBulkCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_steps_bulk", _apr_mutation_identity(request, current_user, str(apr_id)), limit=20, window_seconds=60)
     _ensure_write_access(current_user)
     apr = db.get(APR, apr_id)
     if not apr:
@@ -887,6 +1201,7 @@ def adicionar_passos_em_lote(
         actor=current_user,
     )
     db.commit()
+    _invalidate_dashboard_cache(apr.company_id)
 
     db.refresh(apr)
     return apr
@@ -896,9 +1211,11 @@ def adicionar_passos_em_lote(
 def aplicar_atividade(
     apr_id: int,
     payload: schemas.ActivityApply,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_apply_activity", _apr_mutation_identity(request, current_user, str(apr_id)), limit=20, window_seconds=60)
     _ensure_write_access(current_user)
     apr = db.get(APR, apr_id)
     if not apr:
@@ -961,6 +1278,7 @@ def aplicar_atividade(
         actor=current_user,
     )
     db.commit()
+    _invalidate_dashboard_cache(apr.company_id)
     db.refresh(apr)
     return apr
 
@@ -970,9 +1288,11 @@ def atualizar_risk_item(
     apr_id: int,
     risk_item_id: int,
     payload: schemas.RiskItemUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_risk_item_update", _apr_mutation_identity(request, current_user, f"{apr_id}:{risk_item_id}"), limit=60, window_seconds=60)
     _ensure_write_access(current_user)
     apr = db.get(APR, apr_id)
     if not apr:
@@ -1010,6 +1330,7 @@ def atualizar_risk_item(
         risk_item.risk_level = level
         db.commit()
         db.refresh(risk_item)
+        _invalidate_dashboard_cache(apr.company_id)
 
     return risk_item
 
@@ -1018,9 +1339,11 @@ def atualizar_risk_item(
 def finalizar_apr(
     apr_id: int,
     payload: schemas.APRFinalize,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_finalize", _apr_mutation_identity(request, current_user, str(apr_id)), limit=10, window_seconds=60)
     _ensure_write_access(current_user)
     apr = db.get(APR, apr_id)
     if not apr:
@@ -1038,18 +1361,20 @@ def finalizar_apr(
         raise ApiError(
             status_code=400,
             code="responsible_mismatch",
-            message="Confirmação do responsável técnico não confere com o cadastro atual",
+            message="ConfirmaÃ§Ã£o do responsÃ¡vel tÃ©cnico nÃ£o confere com o cadastro atual",
             field="responsible_confirm",
         )
 
     passos = db.execute(select(Passo).where(Passo.apr_id == apr_id)).scalars().all()
     rebuild_risk_items_for_apr(db, apr_id)
     db.commit()
+    _invalidate_dashboard_cache(apr.company_id)
     risk_items = list_risk_items_for_apr(db, apr_id)
 
     validate_apr_for_pdf(apr, passos, risk_items)
 
     apr.status = "final"
+    apr.current_stage = "relatorio"
     apr.template_version = PDF_TEMPLATE_VERSION
     _add_event(
         db,
@@ -1118,6 +1443,7 @@ def gerar_pdf(
     passos = db.execute(select(Passo).where(Passo.apr_id == apr_id)).scalars().all()
     rebuild_risk_items_for_apr(db, apr_id)
     db.commit()
+    _invalidate_dashboard_cache(apr.company_id)
     risk_items = list_risk_items_for_apr(db, apr_id)
 
     stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
@@ -1151,9 +1477,11 @@ def gerar_pdf(
 @router.post("/{apr_id}/share", response_model=schemas.APRShareOut)
 def criar_compartilhamento(
     apr_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    apply_rate_limit("aprs_share", _apr_mutation_identity(request, current_user, str(apr_id)), limit=10, window_seconds=300)
     _ensure_write_access(current_user)
     apr = db.get(APR, apr_id)
     if not apr:
@@ -1164,6 +1492,7 @@ def criar_compartilhamento(
     passos = db.execute(select(Passo).where(Passo.apr_id == apr_id)).scalars().all()
     rebuild_risk_items_for_apr(db, apr_id)
     db.commit()
+    _invalidate_dashboard_cache(apr.company_id)
     risk_items = list_risk_items_for_apr(db, apr_id)
 
     token = uuid4().hex
@@ -1205,3 +1534,6 @@ def criar_compartilhamento(
         "filename": filename,
         "created_at": share.criado_em,
     }
+
+
+

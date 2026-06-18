@@ -1,7 +1,36 @@
 services:
   - type: web
-    name: hcs-backend
-    env: python
-    rootDir: .
+    name: backend-api
+    runtime: python
+    region: oregon
+    plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: python -m alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ENV
+        value: production
+      - key: DATABASE_URL
+        value: postgresql+psycopg2://postgres:ekl26+119723@db.hrtpniackgdogtmrgrop.supabase.co:5432/postgres?sslmode=require
+      - key: JWT_SECRET
+        value: production-secret
+      - key: SESSION_TTL_MINUTES
+        value: "480"
+      - key: SESSION_REFRESH_GRACE_MINUTES
+        value: "10080"
+      - key: APP_VERSION
+        value: "2026.06.18"
+      - key: CORS_ORIGINS
+        value: "https://hcsdigital.com.br,https://www.hcsdigital.com.br,https://engesafety-web.vercel.app"
+      - key: CORS_ALLOW_ALL
+        value: "false"
+      - key: APP_BASE_URL
+        value: https://hcsdigital.com.br
+      - key: INVITE_TOKEN_SECRET
+        value: production-invite-secret
+      - key: GEMINI_API_KEY
+        value: AIzaSyAO4xUqHshtDKklwd3YbcUBayO4ySSuD5c
+      - key: GOOGLE_API_KEY
+        value: AIzaSyAO4xUqHshtDKklwd3YbcUBayO4ySSuD5c
+      - key: ALLOW_LEGACY_API_TOKENS
+        value: "false"

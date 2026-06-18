@@ -30,9 +30,16 @@ from routes.invites import router as invites_router
 from routes.admin_ui import router as admin_ui_router
 from routes.account import router as account_router
 from routes.seller_activation import router as seller_activation_router
+from routes.risk_dashboard import router as risk_dashboard_router
+from routes.apr_workflow import router as apr_workflow_router
+from routes.norm_profiles import router as norm_profiles_router
+from routes.risk_calc import router as risk_calc_router
 from api_errors import ApiError
-from auth_utils import hash_password, generate_token
+from auth_utils import hash_password, generate_token, _session_secret
+from invite_utils import _invite_secret
 from models import User, Company
+from norm_profile_service import ensure_framework_catalog
+from security_rate_limit import ensure_rate_limit_backend
 
 class JSONCharsetMiddleware:
     def __init__(self, app):
@@ -99,6 +106,54 @@ class RequestLoggingMiddleware:
                 request_id,
             )
 
+
+class SecurityHeadersMiddleware:
+    def __init__(self, app):
+        self.app = app
+        self.enable_hsts = os.getenv("ENABLE_HSTS", "true").strip().lower() in {"1", "true", "yes"}
+        self.enable_csp = os.getenv("ENABLE_CSP", "true").strip().lower() in {"1", "true", "yes"}
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        scheme = scope.get("scheme", "http")
+        path = scope.get("path", "")
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+
+                def _set_header(name: bytes, value: bytes) -> None:
+                    nonlocal headers
+                    headers = [(k, v) for (k, v) in headers if k.lower() != name.lower()]
+                    headers.append((name, value))
+
+                _set_header(b"x-content-type-options", b"nosniff")
+                _set_header(b"x-frame-options", b"DENY")
+                _set_header(b"x-xss-protection", b"0")
+                _set_header(b"x-permitted-cross-domain-policies", b"none")
+                _set_header(b"referrer-policy", b"no-referrer")
+                _set_header(b"cross-origin-opener-policy", b"same-origin")
+                _set_header(b"cross-origin-resource-policy", b"same-origin")
+                _set_header(b"permissions-policy", b"camera=(), microphone=(), geolocation=()")
+                _set_header(b"cache-control", b"no-store")
+
+                if self.enable_csp and not (path.startswith("/docs") or path.startswith("/redoc")):
+                    _set_header(
+                        b"content-security-policy",
+                        b"default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+                    )
+
+                if self.enable_hsts and scheme == "https":
+                    _set_header(b"strict-transport-security", b"max-age=31536000; includeSubDomains; preload")
+
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
 app = FastAPI(title="APR Backend")
 
 def _parse_csv_env(env_name: str) -> list[str]:
@@ -125,6 +180,7 @@ app.add_middleware(
 )
 app.add_middleware(JSONCharsetMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 logger = logging.getLogger(__name__)
 APP_VERSION = os.getenv("APP_VERSION", "2026.02.20")
@@ -194,6 +250,10 @@ app.include_router(auth_router)
 app.include_router(companies_router)
 app.include_router(invites_router)
 app.include_router(admin_ui_router)
+app.include_router(risk_dashboard_router)
+app.include_router(apr_workflow_router)
+app.include_router(norm_profiles_router)
+app.include_router(risk_calc_router)
 
 @app.get("/contract")
 def contract_legacy(request: Request):
@@ -214,6 +274,9 @@ def schema_legacy(request: Request):
 
 @app.on_event("startup")
 def seed_from_xlsx() -> None:
+    _session_secret()
+    _invite_secret()
+    ensure_rate_limit_backend()
     base_dir = os.path.dirname(__file__)
     epi_path = os.path.join(base_dir, "epis_apr_modelo_validado.xlsx")
     perigo_path = os.path.join(base_dir, "perigos_apr_modelo_validado.xlsx")
@@ -221,6 +284,7 @@ def seed_from_xlsx() -> None:
     db = SessionLocal()
     try:
         Base.metadata.create_all(bind=engine)
+        ensure_framework_catalog(db)
 
         if os.path.exists(epi_path):
             try:

@@ -1,7 +1,7 @@
 ﻿from datetime import datetime
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import date as dt_date
-from typing import Optional, List, Generic, TypeVar
+from typing import Optional, List, Generic, TypeVar, Literal, Any
 
 from text_normalizer import normalize_text
 
@@ -31,6 +31,11 @@ class DangerousEnergiesChecklist(NormalizedModel):
     gravitational_potential: bool = False
     thermal: bool = False
     pneumatic: bool = False
+
+
+AprStage = Literal["criar", "perigos", "controles", "aprovacao", "execucao", "relatorio"]
+RiskLevel = Literal["baixa", "media", "alta"]
+TaskStatus = Literal["open", "in_progress", "done", "canceled"]
 
 
 def _normalize_value(value, *, origin: str, field: str | None):
@@ -187,6 +192,8 @@ class APRCreate(NormalizedUserModel):
     worksite: Optional[str] = None
     sector: Optional[str] = None
     responsible: Optional[str] = None
+    contract_id: Optional[str] = None
+    unit_id: Optional[str] = None
     date: Optional[dt_date] = None
     activity_id: Optional[str] = None
     activity_name: Optional[str] = None
@@ -200,6 +207,8 @@ class APRUpdate(NormalizedUserModel):
     worksite: Optional[str] = None
     sector: Optional[str] = None
     responsible: Optional[str] = None
+    contract_id: Optional[str] = None
+    unit_id: Optional[str] = None
     date: Optional[dt_date] = None
     activity_id: Optional[str] = None
     activity_name: Optional[str] = None
@@ -223,14 +232,24 @@ class APROut(NormalizedModel):
     worksite: Optional[str] = None
     sector: Optional[str] = None
     responsible: Optional[str] = None
+    contract_id: Optional[str] = None
+    unit_id: Optional[str] = None
     date: Optional[dt_date] = None
     activity_id: Optional[str] = None
     activity_name: Optional[str] = None
     source_hashes: Optional[str] = None
     template_version: Optional[str] = None
+    norm_profile_id: Optional[int] = None
+    norm_profile_version: Optional[int] = None
+    norm_profile_mode: Optional[str] = None
+    norm_profile_snapshot: Optional[dict[str, Any]] = None
     company_id: Optional[int] = None
     user_id: Optional[int] = None
     status: str
+    current_stage: AprStage = "criar"
+    approved_by_user_id: Optional[int] = None
+    approved_by_name: Optional[str] = None
+    approved_at: Optional[datetime] = None
     dangerous_energies_checklist: DangerousEnergiesChecklist = Field(
         default_factory=DangerousEnergiesChecklist
     )
@@ -291,6 +310,108 @@ class APREventOut(NormalizedModel):
     event: str
     payload: Optional[dict] = None
     criado_em: datetime
+
+
+class APRStageUpdate(NormalizedUserModel):
+    stage: AprStage
+    reason: Optional[str] = None
+
+
+class APRTaskCreate(NormalizedUserModel):
+    step_id: Optional[int] = None
+    type: str = "generic"
+    title: str = Field(min_length=1, max_length=255)
+    description: Optional[str] = None
+    assigned_to_user_id: Optional[int] = None
+    priority: str = "normal"
+    due_at: Optional[datetime] = None
+    reason: Optional[str] = None
+
+
+class APRTaskUpdate(NormalizedUserModel):
+    status: Optional[TaskStatus] = None
+    assigned_to_user_id: Optional[int] = None
+    priority: Optional[str] = None
+    due_at: Optional[datetime] = None
+    reason: Optional[str] = None
+
+
+class APRTaskOut(NormalizedModel):
+    id: int
+    apr_id: int
+    company_id: Optional[int] = None
+    step_id: Optional[int] = None
+    type: str
+    title: str
+    description: Optional[str] = None
+    assigned_to_user_id: Optional[int] = None
+    requested_by_user_id: Optional[int] = None
+    priority: str
+    status: TaskStatus
+    due_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    reason: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PaginatedAPRTaskOut(PaginatedOut[APRTaskOut]):
+    pass
+
+
+class ApprovalDecisionRequest(NormalizedUserModel):
+    decision: Literal["approve", "reject", "request_evidence"]
+    reason: Optional[str] = None
+    due_at: Optional[datetime] = None
+    approved_by_user_id: Optional[int] = None
+    approved_by_name: Optional[str] = None
+
+
+class ExecutionActionOut(NormalizedModel):
+    apr_id: int
+    action: Literal["start", "pause", "finish"]
+    status: str
+    current_stage: AprStage
+    timestamp: datetime
+
+
+class AuditEventPayload(NormalizedModel):
+    actor: Optional[dict[str, Any]] = None
+    action: str
+    reason: Optional[str] = None
+    stage: Optional[AprStage] = None
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class AuditEventOut(NormalizedModel):
+    id: int
+    timestamp: datetime
+    actor_user_id: Optional[int] = None
+    actor_role: Optional[str] = None
+    action: str
+    reason: Optional[str] = None
+    apr_id: int
+    stage: Optional[AprStage] = None
+    step_id: Optional[int] = None
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class HomeSummaryKPI(NormalizedModel):
+    aprs_open: int
+    critical: int
+    pending_approvals: int
+    sla_on_track: int
+    compliance_30d: int
+
+
+class HomeSummaryOut(NormalizedModel):
+    kpis: HomeSummaryKPI
+    queue: List[dict[str, Any]] = []
+    dashboards: dict[str, Any] = Field(default_factory=dict)
+    evidences: List[dict[str, Any]] = []
 
 
 class APRShareOut(NormalizedModel):
@@ -365,3 +486,86 @@ class SellerActivationStatusOut(NormalizedModel):
     pending_items: List[str]
     checklist: List[SellerActivationChecklistItem]
     message: str
+
+
+class NormFrameworkOut(NormalizedModel):
+    id: str
+    type: str
+    name: str
+    description: Optional[str] = None
+    country_scope: Optional[str] = None
+    is_base: bool = False
+    is_enabled_global: bool = True
+
+
+class NormProfileBaseOut(NormalizedModel):
+    id: str
+    type: str
+    name: Optional[str] = None
+
+
+class NormProfileResolvedOut(NormalizedModel):
+    profileId: str
+    id: int
+    version: int
+    scopeType: str
+    scopeId: str
+    base: NormProfileBaseOut
+    optionals: List[NormProfileBaseOut] = []
+    riskEngineMode: str
+    updatedAt: Optional[str] = None
+    updatedBy: Optional[int] = None
+    resolvedFrom: Optional[str] = None
+
+
+class NormProfileUpsert(NormalizedUserModel):
+    scope_type: Literal["company", "contract", "unit"]
+    scope_id: str
+    optional_framework_ids: List[str] = []
+    risk_engine_mode: Optional[str] = None
+
+
+class NormProfileUpdate(NormalizedUserModel):
+    optional_framework_ids: Optional[List[str]] = None
+    risk_engine_mode: Optional[str] = None
+
+
+class RiskCalcStepInput(NormalizedUserModel):
+    step_order: int = Field(..., ge=1)
+    probability: int = Field(..., ge=1, le=5)
+    severity: int = Field(..., ge=1, le=5)
+
+
+class RiskCalcInput(NormalizedUserModel):
+    aprId: Optional[int] = None
+    normProfileId: Optional[int] = None
+    profileVersion: Optional[int] = None
+    contractId: Optional[str] = None
+    unitId: Optional[str] = None
+    steps: List[RiskCalcStepInput] = []
+
+
+class RiskCalcStepOut(NormalizedModel):
+    stepOrder: int
+    probability: int
+    severity: int
+    score: int
+    riskLevel: str
+
+
+class RiskCalcTotalsOut(NormalizedModel):
+    totalSteps: int
+    baixo: int
+    medio: int
+    alto: int
+    maxScore: int
+
+
+class RiskCalcOut(NormalizedModel):
+    aprId: Optional[int] = None
+    normProfileId: int
+    profileVersionUsed: int
+    riskEngineMode: str
+    engineVersion: str
+    steps: List[RiskCalcStepOut] = []
+    totals: RiskCalcTotalsOut

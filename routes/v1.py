@@ -4,7 +4,7 @@ from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import select, func
 
-from database import SessionLocal
+from database import get_db
 from models import EPI, Perigo
 from excel_contract import get_contract_cached, RISK_MATRIX
 from api_errors import validation_error
@@ -13,13 +13,6 @@ from auth import get_current_user, require_admin
 
 router = APIRouter(prefix="/v1", tags=["v1"])
 
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/health")
@@ -150,3 +143,6 @@ def atualizar_perigo(
         db.refresh(obj)
 
     return obj
+
+
+

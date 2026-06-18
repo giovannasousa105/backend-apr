@@ -7,6 +7,8 @@ import secrets
 from datetime import datetime, timedelta
 from urllib.parse import quote
 
+from auth_utils import _session_secret
+
 
 INVITE_STATUS_PENDING = "pending"
 INVITE_STATUS_ACCEPTED = "accepted"
@@ -15,11 +17,14 @@ INVITE_STATUS_REVOKED = "revoked"
 
 
 def _invite_secret() -> str:
-    return (
-        os.getenv("INVITE_TOKEN_SECRET")
-        or os.getenv("JWT_SECRET")
-        or "dev-invite-secret"
-    )
+    value = (os.getenv("INVITE_TOKEN_SECRET") or "").strip()
+    if value:
+        if value.lower() in {"change-me", "changeme", "default", "secret"}:
+            raise RuntimeError("INVITE_TOKEN_SECRET inseguro ou nao configurado")
+        if len(value) < 32:
+            raise RuntimeError("INVITE_TOKEN_SECRET deve ter no minimo 32 caracteres")
+        return value
+    return _session_secret().decode("utf-8")
 
 
 def hash_invite_token(raw_token: str) -> str:

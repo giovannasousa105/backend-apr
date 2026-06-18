@@ -1,4 +1,4 @@
-from datetime import date, datetime
+﻿from datetime import date, datetime
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,11 +7,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from database import SessionLocal
+from database import get_db
 from models import APR, Passo, APREvent, EPI, Perigo, User
 import schemas
 from apr_documents import write_apr_pdf, validate_apr_for_pdf, PDF_TEMPLATE_VERSION
 from excel_contract import get_excel_hashes
+from apr_flow import list_tools_catalog
 from ai_suggestions import (
     generate_ai_steps,
     AIConfigError,
@@ -29,13 +30,25 @@ from rbac import can_write, normalize_role
 router = APIRouter(tags=["APR Legacy"])
 logger = logging.getLogger(__name__)
 
+_AI_KEY_ERROR_TOKENS = (
+    "api key not found",
+    "api key invalid",
+    "api_key_invalid",
+    "api_key_service_blocked",
+)
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+
+def _public_ai_error_message(message: str) -> str:
+    msg = (message or "").strip()
+    lowered = msg.lower()
+    if any(token in lowered for token in _AI_KEY_ERROR_TOKENS):
+        return "Servico de IA indisponivel no momento. Tente novamente em instantes."
+    if "nao configurada" in lowered and "gemini_api_key" in lowered:
+        return "Servico de IA indisponivel no momento. Tente novamente em instantes."
+    if "quota exceeded" in lowered or "rate limit" in lowered:
+        return "Cota da IA esgotada no momento. Aguarde alguns minutos e tente novamente."
+    return msg or "Falha ao gerar passos com IA"
+
 
 
 def _split_list(value, field: str) -> list[str]:
@@ -118,6 +131,7 @@ class AIStep(BaseModel):
     consequencia: str
     salvaguarda: str
     epi: str
+    normas: str = ""
 
 
 class AIStepsRequest(BaseModel):
@@ -342,7 +356,12 @@ def sugerir_passos_com_ia(
             max_steps=payload.max_steps,
         )
     except AIConfigError as exc:
-        raise ApiError(status_code=503, code="ai_not_configured", message=str(exc), field=None)
+        raise ApiError(
+            status_code=503,
+            code="ai_not_configured",
+            message=_public_ai_error_message(str(exc)),
+            field=None,
+        )
     except AITextInvalidEncodingError as exc:
         raise ApiError(
             status_code=502,
@@ -352,7 +371,10 @@ def sugerir_passos_com_ia(
         )
     except AIResponseError as exc:
         logger.warning("IA falhou para APR %s: %s", apr_id, exc)
-        raise ApiError(status_code=502, code="ai_error", message=str(exc), field=None)
+        message = _public_ai_error_message(str(exc))
+        if "alta demanda" in message:
+            raise ApiError(status_code=429, code="ai_rate_limited", message=message, field=None)
+        raise ApiError(status_code=502, code="ai_error", message=message, field=None)
     except Exception:
         logger.exception("Erro inesperado ao gerar passos com IA")
         raise ApiError(
@@ -471,3 +493,16 @@ def listar_catalogo_perigos(
         }
         for item in items
     ]
+
+
+@router.get("/catalogo/ferramentas", response_model=list[CatalogItem])
+def listar_catalogo_ferramentas(
+    q: str | None = None,
+    limit: int = 30,
+    _user=Depends(get_current_user),
+):
+    names = list_tools_catalog(limit=limit, q=q)
+    return [{"id": idx + 1, "name": name} for idx, name in enumerate(names)]
+
+
+
