@@ -43,7 +43,7 @@ PERIGO_FIELDS = [
     "notes",
 ]
 PERIGO_REQUIRED = {"id", "perigo"}
-PERIGO_OPTIONAL = {"consequencias", "salvaguardas"}
+PERIGO_OPTIONAL = {"consequencias", "salvaguardas", "default_severity", "default_probability"}
 
 ATIVIDADES_FIELDS = ["id", "name", "category", "description", "regulation", "tags"]
 ATIVIDADES_REQUIRED = {"atividade_id", "atividade", "ordem_passo", "descricao_passo"}

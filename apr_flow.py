@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 import re
+import unicodedata
 
 import pandas as pd
 
@@ -30,6 +31,29 @@ _CACHE: dict[str, Any] = {
     "mtime": None,
     "activities": [],
     "by_id": {},
+}
+
+_TOOLS_DEFAULT = [
+    "Furadeira",
+    "Esmerilhadeira",
+    "Escada",
+    "Talha",
+    "Ferramentas manuais",
+]
+
+_TOOL_KEYWORDS = {
+    "furadeira": "Furadeira",
+    "esmerilhadeira": "Esmerilhadeira",
+    "escada": "Escada",
+    "talha": "Talha",
+    "ferramentas manuais": "Ferramentas manuais",
+    "ferramenta manual": "Ferramentas manuais",
+    "ferramenta isolada": "Ferramentas isoladas",
+    "ferramentas isoladas": "Ferramentas isoladas",
+    "multimetro": "Multimetro",
+    "alicate": "Alicate",
+    "chave de fenda": "Chave de fenda",
+    "andaime": "Andaime",
 }
 
 
@@ -136,6 +160,13 @@ def _sort_key(value: Any) -> tuple:
         return (1, str(value))
 
 
+def _fold_text(value: str) -> str:
+    # Remove acentos para facilitar match de termos vindos do Excel.
+    normalized = unicodedata.normalize("NFKD", value)
+    folded = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return folded.lower().strip()
+
+
 def _get_cache() -> dict[str, Any]:
     base_dir = Path(__file__).resolve().parent
     path = base_dir / "atividades_passos_apr_modelo_validado.xlsx"
@@ -202,3 +233,40 @@ def get_activity_suggestions(activity_id: str) -> Dict[str, Any] | None:
         "suggestions": suggestions,
         "steps": steps,
     }
+
+
+def list_tools_catalog(limit: int = 30, q: str | None = None) -> List[str]:
+    limit = min(max(limit, 1), 200)
+    cache = _get_cache()
+    found: set[str] = set()
+
+    for entry in cache.get("by_id", {}).values():
+        for row in entry.get("rows", []):
+            texts = [
+                row.descricao_passo,
+                *(row.medidas_controle or []),
+                *(row.perigos or []),
+                *(row.riscos or []),
+            ]
+            for text in texts:
+                normalized = normalize_text(
+                    text,
+                    keep_newlines=False,
+                    origin="excel",
+                    field="ferramentas",
+                ) or ""
+                folded = _fold_text(normalized)
+                if not folded:
+                    continue
+                for keyword, label in _TOOL_KEYWORDS.items():
+                    if keyword in folded:
+                        found.add(label)
+
+    # Mantem baseline tecnico mesmo quando o Excel atual nao traz todas as ferramentas.
+    found.update(_TOOLS_DEFAULT)
+
+    ordered = sorted(found, key=lambda item: _fold_text(item))
+    if q and q.strip():
+        q_folded = _fold_text(q)
+        ordered = [name for name in ordered if q_folded in _fold_text(name)]
+    return ordered[:limit]

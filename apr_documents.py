@@ -108,14 +108,14 @@ def validate_apr_for_pdf(apr: Any, passos: list[Any], risk_items: list[Any] | No
 def build_apr_document(apr: Any, passos: list[Any], risk_items: list[Any] | None = None) -> dict:
     base_dir = Path(__file__).resolve().parent
     evidence_dir = base_dir / "uploads" / "step_evidence"
-    checklist = getattr(apr, "dangerous_energies_checklist", None) or {}
+    dangerous_energies_checklist = getattr(apr, "dangerous_energies_checklist", None) or {}
     energies = [
         {
             "energia": label,
             "marcado": True,
         }
         for key, label in _DANGEROUS_ENERGIES_ORDER
-        if bool(checklist.get(key, False))
+        if bool(dangerous_energies_checklist.get(key, False))
     ]
     step_order_by_id = {getattr(p, "id", None): getattr(p, "ordem", None) for p in passos}
     matrix = []
@@ -139,12 +139,24 @@ def build_apr_document(apr: Any, passos: list[Any], risk_items: list[Any] | None
             {
                 "apr": {
                     "atividade_id": _sanitize_text(getattr(apr, "activity_id", None)),
+                    "external_id": _sanitize_text(getattr(apr, "external_id", None)),
                     "atividade": _sanitize_text(
                         getattr(apr, "activity_name", None) or getattr(apr, "titulo", None)
                     ),
                     "obra": _sanitize_text(getattr(apr, "sector", None)),
                     "local": _sanitize_text(getattr(apr, "worksite", None)),
                     "responsavel": _sanitize_text(getattr(apr, "responsible", None)),
+                    "approved_by_name": _sanitize_text(getattr(apr, "approved_by_name", None)),
+                    "approved_at": _sanitize_text(
+                        apr.approved_at.isoformat() if getattr(apr, "approved_at", None) else None
+                    ),
+                    "created_at": _sanitize_text(
+                        apr.created_at.isoformat() if getattr(apr, "created_at", None) else None
+                    ),
+                    "updated_at": _sanitize_text(
+                        apr.updated_at.isoformat() if getattr(apr, "updated_at", None) else None
+                    ),
+                    "status": _sanitize_text(getattr(apr, "status", None)),
                     "data": _sanitize_text(
                         apr.date.isoformat() if getattr(apr, "date", None) else None
                     ),

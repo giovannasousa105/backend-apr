@@ -12,6 +12,20 @@ def _norm_cols(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _parse_default_factor(value) -> int:
+    if value is None:
+        return 0
+    try:
+        parsed = int(value)
+    except Exception:
+        return 0
+    if parsed < 0:
+        return 0
+    if parsed > 5:
+        return 5
+    return parsed
+
+
 def importar_epis(db: Session, caminho_excel: str) -> dict:
     df = pd.read_excel(caminho_excel)
     validate_epis_df(df)
@@ -48,11 +62,14 @@ def importar_perigos(db: Session, caminho_excel: str) -> dict:
     df = _norm_cols(df)
 
     criados = 0
+    atualizados = 0
 
     for _, row in df.iterrows():
         perigo = str(row.get("perigo")).strip() if row.get("perigo") is not None else ""
         consequencias = row.get("consequencias")
         salvaguardas = row.get("salvaguardas")
+        default_probability = _parse_default_factor(row.get("default_probability"))
+        default_severity = _parse_default_factor(row.get("default_severity"))
 
         perigo = normalize_text(perigo, origin="excel", field="perigo") or ""
         consequencias = normalize_text(consequencias, origin="excel", field="consequencias")
@@ -63,10 +80,37 @@ def importar_perigos(db: Session, caminho_excel: str) -> dict:
 
         existe = db.execute(select(Perigo).where(Perigo.perigo == perigo)).scalar_one_or_none()
         if existe:
+            changed = False
+            if (not existe.consequencias) and consequencias:
+                existe.consequencias = consequencias
+                changed = True
+            if (not existe.salvaguardas) and salvaguardas:
+                existe.salvaguardas = salvaguardas
+                changed = True
+            if _parse_default_factor(existe.default_probability) == 0 and default_probability > 0:
+                existe.default_probability = default_probability
+                changed = True
+            if _parse_default_factor(existe.default_severity) == 0 and default_severity > 0:
+                existe.default_severity = default_severity
+                changed = True
+            if changed:
+                atualizados += 1
             continue
 
-        db.add(Perigo(perigo=perigo, consequencias=consequencias, salvaguardas=salvaguardas))
+        db.add(
+            Perigo(
+                perigo=perigo,
+                consequencias=consequencias,
+                salvaguardas=salvaguardas,
+                default_probability=default_probability,
+                default_severity=default_severity,
+            )
+        )
         criados += 1
 
     db.commit()
-    return {"schema_version": SCHEMA_VERSION, "perigos_inseridos": criados}
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "perigos_inseridos": criados,
+        "perigos_atualizados": atualizados,
+    }
